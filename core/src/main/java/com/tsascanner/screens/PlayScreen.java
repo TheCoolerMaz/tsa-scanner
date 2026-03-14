@@ -42,6 +42,11 @@ public class PlayScreen extends GameScreen {
     private static final Color COL_XRAY_OUTLINE  = new Color(0.15f, 0.30f, 0.60f, 1f);
     private static final Color COL_XRAY_ITEM     = new Color(1.0f, 0.6f, 0.1f, 1f);
     private static final Color COL_XRAY_GLOW     = new Color(1.0f, 0.7f, 0.2f, 0.3f);
+    // Debug colors — weapons red, safe green
+    private static final Color COL_XRAY_WEAPON      = new Color(1.0f, 0.15f, 0.15f, 1f);
+    private static final Color COL_XRAY_WEAPON_GLOW = new Color(1.0f, 0.2f, 0.2f, 0.3f);
+    private static final Color COL_XRAY_SAFE        = new Color(0.15f, 0.9f, 0.3f, 1f);
+    private static final Color COL_XRAY_SAFE_GLOW   = new Color(0.2f, 0.9f, 0.3f, 0.3f);
     private static final Color COL_SCAN_ZONE     = new Color(0.05f, 0.12f, 0.30f, 0.25f);
     private static final Color COL_SCAN_BORDER   = new Color(0.2f, 0.4f, 0.8f, 0.6f);
     private static final Color COL_CORRECT       = new Color(0.2f, 0.9f, 0.3f, 1f);
@@ -76,6 +81,7 @@ public class PlayScreen extends GameScreen {
     private float nextBagDelay;
     private boolean showResults;
     private boolean decided; // has the player made a decision on the current bag?
+    private boolean speedBoost; // SPACE held for 2x speed
 
     // ===== Feedback flash =====
     private float flashTimer;
@@ -166,8 +172,11 @@ public class PlayScreen extends GameScreen {
             return;
         }
 
+        // Belt speed with optional 2x boost
+        float speed = state.getBeltSpeed() * (speedBoost ? 2f : 1f);
+
         // Animate belt
-        beltAnimOffset += state.getBeltSpeed() * delta;
+        beltAnimOffset += speed * delta;
         if (beltAnimOffset > 20) beltAnimOffset -= 20;
 
         // Feedback timer
@@ -192,7 +201,7 @@ public class PlayScreen extends GameScreen {
 
         // Move current bag — bags always move
         if (currentBag != null) {
-            currentBag.x += state.getBeltSpeed() * delta;
+            currentBag.x += speed * delta;
 
             // Check if bag has left the scan zone without a decision
             if (!decided && bagPastScanZone()) {
@@ -232,17 +241,11 @@ public class PlayScreen extends GameScreen {
             return;
         }
 
-        // Can only act on a bag while it's in the scan zone and undecided
-        if (currentBag != null && !decided && bagInScanZone()) {
-            // Pass
-            if (Gdx.input.isKeyJustPressed(Input.Keys.A)) {
-                boolean wasWeapon = currentBag.containsWeapon();
-                state.scorePass(currentBag);
-                triggerFlash(!wasWeapon);
-                decided = true;
-            }
+        // Hold SPACE for 2x belt speed
+        speedBoost = Gdx.input.isKeyPressed(Input.Keys.SPACE);
 
-            // Flag
+        // Flag with D — only while bag is in scan zone and undecided
+        if (currentBag != null && !decided && bagInScanZone()) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.D)) {
                 boolean wasWeapon = currentBag.containsWeapon();
                 state.scoreFlag(currentBag);
@@ -393,16 +396,20 @@ public class PlayScreen extends GameScreen {
             float ix = centerX + item.bagX;
             float iy = centerY + item.bagY;
 
+            // Debug: red for weapons, green for safe
+            Color solidCol = item.isWeapon() ? COL_XRAY_WEAPON : COL_XRAY_SAFE;
+            Color glowCol = item.isWeapon() ? COL_XRAY_WEAPON_GLOW : COL_XRAY_SAFE_GLOW;
+
             for (Item.ShapePart part : item.parts) {
                 float px = ix + part.offsetX;
                 float py = iy + part.offsetY;
 
                 // Glow
-                drawShapePart(part, px, py, COL_XRAY_GLOW, 2f, true);
+                drawShapePart(part, px, py, glowCol, 2f, true);
                 // Solid
-                drawShapePart(part, px, py, COL_XRAY_ITEM, 0f, true);
+                drawShapePart(part, px, py, solidCol, 0f, true);
                 // Outline
-                drawShapePart(part, px, py, COL_XRAY_ITEM, 0f, false);
+                drawShapePart(part, px, py, solidCol, 0f, false);
             }
         }
     }
@@ -477,7 +484,7 @@ public class PlayScreen extends GameScreen {
 
         // Bottom bar
         font.getData().setScale(0.7f);
-        font.draw(batch, "[A] PASS    [D] FLAG", 8, BOTTOM_BAR_H - 10);
+        font.draw(batch, "[D] FLAG    [SPACE] SPEED UP", 8, BOTTOM_BAR_H - 10);
 
         // Streak
         String streakText = "STREAK: x" + (state.streak > 0 ? String.format("%.1f", state.multiplier) : "1");
