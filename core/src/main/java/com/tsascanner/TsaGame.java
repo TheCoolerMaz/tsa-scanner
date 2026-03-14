@@ -6,8 +6,8 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.GL20;
 import com.tsascanner.assets.Assets;
 import com.tsascanner.graphics.ShaderPipeline;
+import com.tsascanner.screens.PlayScreen;
 import com.tsascanner.screens.ScreenManager;
-import com.tsascanner.screens.SplashScreen;
 import com.tsascanner.util.Prefs;
 
 /**
@@ -40,7 +40,7 @@ public class TsaGame extends Game {
         shaders.rebuildFromPrefs(prefs);
         
         screens = new ScreenManager(this);
-        screens.push(new SplashScreen());
+        screens.push(new PlayScreen());
     }
 
     @Override

@@ -20,8 +20,9 @@ import com.tsascanner.screens.transitions.FadeTransition;
 
 /**
  * Main gameplay screen — TSA checkpoint scanner.
- * All rendering with ShapeRenderer (geometry) and SpriteBatch (text).
- * 480x270 virtual resolution with FitViewport.
+ *
+ * Bags move continuously on the conveyor. X-ray is always active within
+ * the scan zone — player must flag/pass while the bag is inside the box.
  */
 public class PlayScreen extends GameScreen {
 
@@ -41,8 +42,8 @@ public class PlayScreen extends GameScreen {
     private static final Color COL_XRAY_OUTLINE  = new Color(0.15f, 0.30f, 0.60f, 1f);
     private static final Color COL_XRAY_ITEM     = new Color(1.0f, 0.6f, 0.1f, 1f);
     private static final Color COL_XRAY_GLOW     = new Color(1.0f, 0.7f, 0.2f, 0.3f);
-    private static final Color COL_SCAN_ZONE     = new Color(0.2f, 0.5f, 0.2f, 0.15f);
-    private static final Color COL_SCAN_BORDER   = new Color(0.3f, 0.7f, 0.3f, 0.5f);
+    private static final Color COL_SCAN_ZONE     = new Color(0.05f, 0.12f, 0.30f, 0.25f);
+    private static final Color COL_SCAN_BORDER   = new Color(0.2f, 0.4f, 0.8f, 0.6f);
     private static final Color COL_CORRECT       = new Color(0.2f, 0.9f, 0.3f, 1f);
     private static final Color COL_WRONG         = new Color(0.9f, 0.2f, 0.2f, 1f);
     private static final Color COL_HUD_TEXT      = new Color(0.85f, 0.85f, 0.90f, 1f);
@@ -52,14 +53,12 @@ public class PlayScreen extends GameScreen {
     private static final float TOP_BAR_Y = 250;
     private static final float TOP_BAR_H = 20;
     private static final float BOTTOM_BAR_Y = 0;
-    private static final float BOTTOM_BAR_H = 55;
+    private static final float BOTTOM_BAR_H = 45;
     private static final float BELT_Y = 65;
     private static final float BELT_H = 35;
-    private static final float SCAN_ZONE_X = 160;
-    private static final float SCAN_ZONE_W = 160;
-
-    // ===== Timing =====
-    private static final float BAG_INSPECT_TIMEOUT = 8f;
+    private static final float SCAN_ZONE_X = 140;
+    private static final float SCAN_ZONE_W = 200;
+    private static final float SCAN_ZONE_TOP = 215;
 
     // ===== Rendering =====
     private OrthographicCamera camera;
@@ -72,12 +71,11 @@ public class PlayScreen extends GameScreen {
     // ===== Game State =====
     private GameState state;
     private Bag currentBag;
-    private boolean xrayOn;
-    private float inspectTimer;
     private float beltAnimOffset;
     private boolean waitingForNextBag;
     private float nextBagDelay;
     private boolean showResults;
+    private boolean decided; // has the player made a decision on the current bag?
 
     // ===== Feedback flash =====
     private float flashTimer;
@@ -95,11 +93,7 @@ public class PlayScreen extends GameScreen {
 
         // Get font — fallback to default BitmapFont if not loaded
         BitmapFont assetFont = TsaGame.INSTANCE.assets.getFont();
-        if (assetFont != null) {
-            font = assetFont;
-        } else {
-            font = new BitmapFont();
-        }
+        font = (assetFont != null) ? assetFont : new BitmapFont();
 
         // Init game state
         state = new GameState();
@@ -108,7 +102,6 @@ public class PlayScreen extends GameScreen {
         // Spawn first bag
         spawnNextBag();
 
-        xrayOn = false;
         showResults = false;
         flashTimer = 0;
         beltAnimOffset = 0;
@@ -117,10 +110,8 @@ public class PlayScreen extends GameScreen {
 
     @Override
     public void render(float delta) {
-        // Clamp delta to avoid spiral of death
         delta = Math.min(delta, 0.05f);
 
-        // Handle input
         if (showResults) {
             handleResultsInput();
         } else {
@@ -135,7 +126,6 @@ public class PlayScreen extends GameScreen {
         viewport.apply();
         camera.update();
 
-        // === Shape rendering ===
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
 
@@ -149,14 +139,12 @@ public class PlayScreen extends GameScreen {
         }
         drawFlash();
 
-        // === Text rendering ===
         batch.setProjectionMatrix(camera.combined);
         batch.begin();
         drawHUD();
         drawFeedback();
         batch.end();
 
-        // === Results overlay ===
         if (showResults) {
             drawResults();
         }
@@ -202,42 +190,38 @@ public class PlayScreen extends GameScreen {
             return;
         }
 
-        // Move current bag
+        // Move current bag — bags always move
         if (currentBag != null) {
-            switch (currentBag.state) {
-                case ON_BELT:
-                    currentBag.x += state.getBeltSpeed() * delta;
-                    // Check if reached scan zone
-                    if (currentBag.x >= SCAN_ZONE_X + SCAN_ZONE_W / 2 - currentBag.width / 2) {
-                        currentBag.x = SCAN_ZONE_X + SCAN_ZONE_W / 2 - currentBag.width / 2;
-                        currentBag.state = Bag.BagState.INSPECTING;
-                        inspectTimer = 0;
-                    }
-                    break;
+            currentBag.x += state.getBeltSpeed() * delta;
 
-                case INSPECTING:
-                    inspectTimer += delta;
-                    if (inspectTimer >= BAG_INSPECT_TIMEOUT) {
-                        // Auto-pass on timeout
-                        state.autoPass(currentBag);
-                        xrayOn = false;
-                        triggerFlash(!currentBag.containsWeapon());
-                        startBagExit();
-                    }
-                    break;
+            // Check if bag has left the scan zone without a decision
+            if (!decided && bagPastScanZone()) {
+                // Auto-pass: player didn't act in time
+                state.autoPass(currentBag);
+                triggerFlash(!currentBag.containsWeapon());
+                decided = true;
+            }
 
-                case PASSED:
-                case FLAGGED:
-                    // Slide off to the right
-                    currentBag.x += state.getBeltSpeed() * 2f * delta;
-                    if (currentBag.x > WORLD_W + 20) {
-                        currentBag = null;
-                        waitingForNextBag = true;
-                        nextBagDelay = 0.5f;
-                    }
-                    break;
+            // Check if bag has exited the screen
+            if (currentBag.x > WORLD_W + 20) {
+                currentBag = null;
+                waitingForNextBag = true;
+                nextBagDelay = 0.3f;
             }
         }
+    }
+
+    /** Is the bag currently overlapping the scan zone? */
+    private boolean bagInScanZone() {
+        if (currentBag == null) return false;
+        float bagRight = currentBag.x + currentBag.width;
+        return bagRight > SCAN_ZONE_X && currentBag.x < SCAN_ZONE_X + SCAN_ZONE_W;
+    }
+
+    /** Has the bag moved fully past the scan zone? */
+    private boolean bagPastScanZone() {
+        if (currentBag == null) return false;
+        return currentBag.x > SCAN_ZONE_X + SCAN_ZONE_W;
     }
 
     // ==================== INPUT ====================
@@ -248,28 +232,22 @@ public class PlayScreen extends GameScreen {
             return;
         }
 
-        if (currentBag != null && currentBag.state == Bag.BagState.INSPECTING) {
-            // X-ray toggle
-            if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
-                xrayOn = !xrayOn;
-            }
-
+        // Can only act on a bag while it's in the scan zone and undecided
+        if (currentBag != null && !decided && bagInScanZone()) {
             // Pass
             if (Gdx.input.isKeyJustPressed(Input.Keys.A)) {
                 boolean wasWeapon = currentBag.containsWeapon();
                 state.scorePass(currentBag);
-                xrayOn = false;
                 triggerFlash(!wasWeapon);
-                startBagExit();
+                decided = true;
             }
 
             // Flag
             if (Gdx.input.isKeyJustPressed(Input.Keys.D)) {
                 boolean wasWeapon = currentBag.containsWeapon();
                 state.scoreFlag(currentBag);
-                xrayOn = false;
                 triggerFlash(wasWeapon);
-                startBagExit();
+                decided = true;
             }
         }
     }
@@ -280,13 +258,10 @@ public class PlayScreen extends GameScreen {
 
             String rating = state.getRating();
             if (rating.equals("FIRED") || state.shiftNumber >= 5) {
-                // Game over — back to menu
                 manager.pop(new FadeTransition(0.3f));
             } else {
-                // Next shift
                 state.nextShift();
                 showResults = false;
-                xrayOn = false;
                 spawnNextBag();
             }
         }
@@ -299,23 +274,15 @@ public class PlayScreen extends GameScreen {
     // ==================== HELPERS ====================
 
     private void spawnNextBag() {
-        // Ensure roughly 30-40% of bags have weapons for good gameplay
         float weaponChance = 0.35f;
         if (MathUtils.random() < weaponChance) {
             currentBag = BagGenerator.generateWeaponBag(state.shiftNumber);
         } else {
             currentBag = BagGenerator.generate(state.shiftNumber);
-            // If it accidentally has a weapon, that's fine
         }
-        currentBag.x = -currentBag.width;
+        currentBag.x = -currentBag.width - MathUtils.random(10f, 40f);
         currentBag.y = BELT_Y + BELT_H;
-        xrayOn = false;
-        inspectTimer = 0;
-    }
-
-    private void startBagExit() {
-        // Bag state already set by scorePass/scoreFlag
-        // It will slide off in update()
+        decided = false;
     }
 
     private void triggerFlash(boolean correct) {
@@ -327,15 +294,10 @@ public class PlayScreen extends GameScreen {
 
     private void drawBackground() {
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-
-        // Top bar background
         shapes.setColor(COL_TOP_BAR);
         shapes.rect(0, TOP_BAR_Y, WORLD_W, TOP_BAR_H);
-
-        // Bottom bar background
         shapes.setColor(COL_BOTTOM_BAR);
         shapes.rect(0, BOTTOM_BAR_Y, WORLD_W, BOTTOM_BAR_H);
-
         shapes.end();
     }
 
@@ -355,7 +317,6 @@ public class PlayScreen extends GameScreen {
 
         shapes.end();
 
-        // Belt edges
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(COL_BELT_MARKS);
         shapes.line(0, BELT_Y, WORLD_W, BELT_Y);
@@ -364,15 +325,23 @@ public class PlayScreen extends GameScreen {
     }
 
     private void drawScanZone() {
-        // Semi-transparent scan zone
+        float zoneH = SCAN_ZONE_TOP - BELT_Y;
+
+        // Semi-transparent scan zone fill
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(COL_SCAN_ZONE);
-        shapes.rect(SCAN_ZONE_X, BELT_Y, SCAN_ZONE_W, 150);
+        shapes.rect(SCAN_ZONE_X, BELT_Y, SCAN_ZONE_W, zoneH);
         shapes.end();
 
+        // Scan zone border
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(COL_SCAN_BORDER);
-        shapes.rect(SCAN_ZONE_X, BELT_Y, SCAN_ZONE_W, 150);
+        shapes.rect(SCAN_ZONE_X, BELT_Y, SCAN_ZONE_W, zoneH);
+
+        // Scan line accents at top and bottom
+        shapes.setColor(COL_SCAN_BORDER.r, COL_SCAN_BORDER.g, COL_SCAN_BORDER.b, 0.3f);
+        shapes.line(SCAN_ZONE_X, BELT_Y + zoneH / 3, SCAN_ZONE_X + SCAN_ZONE_W, BELT_Y + zoneH / 3);
+        shapes.line(SCAN_ZONE_X, BELT_Y + zoneH * 2 / 3, SCAN_ZONE_X + SCAN_ZONE_W, BELT_Y + zoneH * 2 / 3);
         shapes.end();
     }
 
@@ -382,15 +351,16 @@ public class PlayScreen extends GameScreen {
         float bw = currentBag.width;
         float bh = currentBag.height;
 
-        if (xrayOn && currentBag.state == Bag.BagState.INSPECTING) {
-            // X-ray view
-            // Bag fill — dark translucent blue
+        boolean inZone = bagInScanZone();
+
+        if (inZone && !decided) {
+            // X-ray view — automatic when inside scan zone
             shapes.begin(ShapeRenderer.ShapeType.Filled);
             shapes.setColor(COL_XRAY_BG);
             shapes.rect(bx, by, bw, bh);
             shapes.end();
 
-            // Draw items inside
+            // Draw items
             drawItems(bx + bw / 2, by + bh / 2);
 
             // Bag outline
@@ -399,7 +369,7 @@ public class PlayScreen extends GameScreen {
             shapes.rect(bx, by, bw, bh);
             shapes.end();
         } else {
-            // Normal view — solid bag
+            // Normal view — opaque bag
             shapes.begin(ShapeRenderer.ShapeType.Filled);
             shapes.setColor(COL_BAG_NORMAL);
             shapes.rect(bx, by, bw, bh);
@@ -427,12 +397,10 @@ public class PlayScreen extends GameScreen {
                 float px = ix + part.offsetX;
                 float py = iy + part.offsetY;
 
-                // Glow effect (slightly larger, translucent)
+                // Glow
                 drawShapePart(part, px, py, COL_XRAY_GLOW, 2f, true);
-
-                // Solid shape
+                // Solid
                 drawShapePart(part, px, py, COL_XRAY_ITEM, 0f, true);
-
                 // Outline
                 drawShapePart(part, px, py, COL_XRAY_ITEM, 0f, false);
             }
@@ -454,7 +422,6 @@ public class PlayScreen extends GameScreen {
         switch (part.type) {
             case RECT:
                 if (part.rotation != 0) {
-                    // Rotated rectangle: use ShapeRenderer's rect with rotation
                     shapes.rect(px - w / 2, py - h / 2, w / 2, h / 2,
                                 w, h, 1f, 1f, part.rotation);
                 } else {
@@ -494,17 +461,12 @@ public class PlayScreen extends GameScreen {
         font.getData().setScale(0.8f);
 
         // Top bar
-        String topLeft = "SHIFT " + state.shiftNumber;
-        String topScore = "SCORE: " + state.score;
-        String topTime = "TIME: " + state.getTimeRemaining();
-        String topBags = "BAGS: " + state.bagsProcessed + "/" + state.bagsRequired;
+        font.draw(batch, "SHIFT " + state.shiftNumber, 8, TOP_BAR_Y + 15);
+        font.draw(batch, "SCORE: " + state.score, 120, TOP_BAR_Y + 15);
+        font.draw(batch, "TIME: " + state.getTimeRemaining(), 260, TOP_BAR_Y + 15);
+        font.draw(batch, "BAGS: " + state.bagsProcessed + "/" + state.bagsRequired, 380, TOP_BAR_Y + 15);
 
-        font.draw(batch, topLeft, 8, TOP_BAR_Y + 15);
-        font.draw(batch, topScore, 120, TOP_BAR_Y + 15);
-        font.draw(batch, topTime, 260, TOP_BAR_Y + 15);
-        font.draw(batch, topBags, 380, TOP_BAR_Y + 15);
-
-        // Strikes display
+        // Strikes
         if (state.strikes > 0) {
             font.setColor(COL_WRONG);
             String strikesText = "STRIKES: " + state.strikes + "/" + GameState.MAX_STRIKES;
@@ -515,33 +477,21 @@ public class PlayScreen extends GameScreen {
 
         // Bottom bar
         font.getData().setScale(0.7f);
+        font.draw(batch, "[A] PASS    [D] FLAG", 8, BOTTOM_BAR_H - 10);
 
-        String controls = "[SPACE] X-RAY    [A] PASS    [D] FLAG";
-        font.draw(batch, controls, 8, BOTTOM_BAR_H - 8);
-
-        // Streak indicator
+        // Streak
         String streakText = "STREAK: x" + (state.streak > 0 ? String.format("%.1f", state.multiplier) : "1");
         layout.setText(font, streakText);
-        font.draw(batch, streakText, WORLD_W - layout.width - 8, BOTTOM_BAR_H - 8);
+        font.draw(batch, streakText, WORLD_W - layout.width - 8, BOTTOM_BAR_H - 10);
 
-        // X-ray indicator
-        if (xrayOn) {
-            font.setColor(COL_XRAY_ITEM);
-            font.draw(batch, "X-RAY ACTIVE", 8, BOTTOM_BAR_H - 22);
+        // Scan zone prompt when bag is inside
+        if (currentBag != null && bagInScanZone() && !decided) {
+            font.setColor(COL_SCAN_BORDER);
+            font.getData().setScale(0.6f);
+            String prompt = "SCANNING...";
+            layout.setText(font, prompt);
+            font.draw(batch, prompt, SCAN_ZONE_X + (SCAN_ZONE_W - layout.width) / 2, SCAN_ZONE_TOP + 12);
             font.setColor(COL_HUD_TEXT);
-        }
-
-        // Inspect timer bar (bottom of scan area)
-        if (currentBag != null && currentBag.state == Bag.BagState.INSPECTING) {
-            float timerPct = 1f - (inspectTimer / BAG_INSPECT_TIMEOUT);
-            // Draw timer bar using shapes — need to break batch
-            batch.end();
-            shapes.begin(ShapeRenderer.ShapeType.Filled);
-            Color timerColor = timerPct > 0.3f ? COL_CORRECT : COL_WRONG;
-            shapes.setColor(timerColor.r, timerColor.g, timerColor.b, 0.6f);
-            shapes.rect(SCAN_ZONE_X, BELT_Y - 5, SCAN_ZONE_W * timerPct, 4);
-            shapes.end();
-            batch.begin();
         }
 
         font.getData().setScale(scale);
@@ -555,9 +505,7 @@ public class PlayScreen extends GameScreen {
 
             font.getData().setScale(1.2f);
             layout.setText(font, state.feedbackText);
-            float fx = (WORLD_W - layout.width) / 2;
-            float fy = 230;
-            font.draw(batch, state.feedbackText, fx, fy);
+            font.draw(batch, state.feedbackText, (WORLD_W - layout.width) / 2, 240);
 
             font.getData().setScale(0.8f);
             font.setColor(COL_HUD_TEXT);
@@ -565,14 +513,12 @@ public class PlayScreen extends GameScreen {
     }
 
     private void drawResults() {
-        // Dim overlay
         shapes.setProjectionMatrix(camera.combined);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(COL_OVERLAY);
         shapes.rect(0, 0, WORLD_W, WORLD_H);
         shapes.end();
 
-        // Results text
         batch.setProjectionMatrix(camera.combined);
         batch.begin();
         font.setColor(COL_HUD_TEXT);
@@ -629,7 +575,5 @@ public class PlayScreen extends GameScreen {
     public void dispose() {
         if (batch != null) batch.dispose();
         if (shapes != null) shapes.dispose();
-        // Don't dispose the asset font — only dispose if we created our own
-        // We can't easily track this, so just null it
     }
 }
