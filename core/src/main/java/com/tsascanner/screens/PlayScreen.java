@@ -44,6 +44,11 @@ public class PlayScreen extends GameScreen {
     private static final Color COL_XRAY_OUTLINE  = new Color(0.15f, 0.30f, 0.60f, 1f);
     private static final Color COL_XRAY_ITEM     = new Color(1.0f, 0.6f, 0.1f, 1f);
     private static final Color COL_XRAY_GLOW     = new Color(1.0f, 0.7f, 0.2f, 0.3f);
+    // Debug colors — forbidden items red, safe items green on conveyor
+    private static final Color COL_DEBUG_FORBID      = new Color(1.0f, 0.15f, 0.15f, 1f);
+    private static final Color COL_DEBUG_FORBID_GLOW = new Color(1.0f, 0.2f, 0.2f, 0.3f);
+    private static final Color COL_DEBUG_SAFE        = new Color(0.15f, 0.9f, 0.3f, 1f);
+    private static final Color COL_DEBUG_SAFE_GLOW   = new Color(0.2f, 0.9f, 0.3f, 0.3f);
     private static final Color COL_SCAN_ZONE     = new Color(0.05f, 0.12f, 0.30f, 0.25f);
     private static final Color COL_SCAN_BORDER   = new Color(0.2f, 0.4f, 0.8f, 0.6f);
     private static final Color COL_CORRECT       = new Color(0.2f, 0.9f, 0.3f, 1f);
@@ -457,22 +462,24 @@ public class PlayScreen extends GameScreen {
         }
     }
 
-    /** Draw items on the belt — all in the same neutral orange color. */
+    /** Draw items on the belt — debug: red=forbidden, green=safe. */
     private void drawBeltItems(float centerX, float centerY) {
         for (Item item : currentBeltBag.contents) {
             float ix = centerX + item.bagX;
             float iy = centerY + item.bagY;
 
+            // Debug coloring based on forbidden status
+            boolean forbidden = state.shiftConfig.isForbidden(item);
+            Color solidCol = forbidden ? COL_DEBUG_FORBID : COL_DEBUG_SAFE;
+            Color glowCol = forbidden ? COL_DEBUG_FORBID_GLOW : COL_DEBUG_SAFE_GLOW;
+
             for (Item.ShapePart part : item.parts) {
                 float px = ix + part.offsetX;
                 float py = iy + part.offsetY;
 
-                // Glow
-                drawShapePart(part, px, py, COL_XRAY_GLOW, 2f, true);
-                // Solid
-                drawShapePart(part, px, py, COL_XRAY_ITEM, 0f, true);
-                // Outline
-                drawShapePart(part, px, py, COL_XRAY_ITEM, 0f, false);
+                drawShapePart(part, px, py, glowCol, 2f, true);
+                drawShapePart(part, px, py, solidCol, 0f, true);
+                drawShapePart(part, px, py, solidCol, 0f, false);
             }
         }
     }
