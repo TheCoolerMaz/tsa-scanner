@@ -653,7 +653,7 @@ public class PlayScreen extends GameScreen {
 
         // Top bar
         font.draw(batch, "SHIFT " + state.shiftNumber, 8, TOP_BAR_Y + 15);
-        font.draw(batch, "SCORE: " + state.score, 100, TOP_BAR_Y + 15);
+        font.draw(batch, String.format("ACC: %.0f%%", state.getAccuracy()), 100, TOP_BAR_Y + 15);
         font.draw(batch, "TIME: " + state.getTimeRemaining(), 210, TOP_BAR_Y + 15);
 
         // Strikes
@@ -837,11 +837,10 @@ public class PlayScreen extends GameScreen {
 
         int totalBags = state.bagsPassed + state.bagsInspected;
         String[] lines = {
-            "Bags Processed: " + totalBags + " (passed: " + state.bagsPassed + ", inspected: " + state.bagsInspected + ")",
-            "Items Classified: " + state.totalClassifications,
-            "Correct: " + state.itemsClassifiedCorrectly + "  Wrong: " + state.itemsClassifiedIncorrectly,
+            "Bags: " + totalBags + " (passed: " + state.bagsPassed + ", inspected: " + state.bagsInspected + ")",
+            "Items Classified: " + state.itemsClassifiedCorrectly + "/" + (state.itemsClassifiedCorrectly + state.itemsClassifiedIncorrectly),
             "Accuracy: " + String.format("%.0f%%", state.getAccuracy()),
-            "Score: " + state.score,
+            "Strikes: " + state.strikes + "/" + GameState.MAX_STRIKES,
             "Rating: " + rating
         };
 

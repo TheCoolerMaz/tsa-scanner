@@ -89,22 +89,9 @@ public class GameState {
         this.showBriefing = true;
     }
 
-    /** Continue to next shift, keeping score. */
+    /** Continue to next shift. */
     public void nextShift() {
-        int prevScore = score;
-        int prevCorrect = correctClassifications;
-        int prevTotal = totalClassifications;
-        int prevItemsCorrect = itemsClassifiedCorrectly;
-        int prevItemsIncorrect = itemsClassifiedIncorrectly;
-
         reset(shiftNumber + 1);
-
-        // Carry over cumulative stats
-        this.score = prevScore;
-        this.correctClassifications = prevCorrect;
-        this.totalClassifications = prevTotal;
-        this.itemsClassifiedCorrectly = prevItemsCorrect;
-        this.itemsClassifiedIncorrectly = prevItemsIncorrect;
     }
 
     // ==================== BELT SCORING ====================
@@ -199,13 +186,11 @@ public class GameState {
 
             if (markedForbidden && actuallyForbidden) {
                 // Correctly identified forbidden item
-                score += 25;
                 correct++;
                 correctClassifications++;
                 itemsClassifiedCorrectly++;
             } else if (markedClear && !actuallyForbidden) {
                 // Correctly identified clean item
-                score += 10;
                 correct++;
                 correctClassifications++;
                 itemsClassifiedCorrectly++;
@@ -215,30 +200,24 @@ public class GameState {
                     correct++;
                     correctClassifications++;
                     itemsClassifiedCorrectly++;
-                    score += 10;
                 } else {
                     // Missed a forbidden item
                     wrong++;
-                    score -= 15;
                     itemsClassifiedIncorrectly++;
                 }
             } else {
                 // Wrong classification
                 wrong++;
-                score -= 15;
                 itemsClassifiedIncorrectly++;
             }
         }
 
         boolean allCorrect = (correct == total);
 
-        // Bonus for perfect bag
         if (allCorrect && total > 0) {
-            int bonus = total * 5;
-            score += bonus;
             streak++;
             updateMultiplier();
-            feedbackText = "PERFECT! +" + bonus + " BONUS";
+            feedbackText = "PERFECT!";
             feedbackCorrect = true;
         } else if (wrong > 0) {
             streak = 0;
