@@ -208,11 +208,11 @@ public class GameState {
     /** Belt speed multiplier based on shift. */
     public float getBeltSpeed() {
         switch (shiftNumber) {
-            case 1: return 78f;
-            case 2: return 98f;
-            case 3: return 117f;
-            case 4: return 137f;
-            default: return 156f;
+            case 1: return 101f;
+            case 2: return 127f;
+            case 3: return 152f;
+            case 4: return 178f;
+            default: return 203f;
         }
     }
 }
