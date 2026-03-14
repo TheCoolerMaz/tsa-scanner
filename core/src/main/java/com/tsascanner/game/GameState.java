@@ -210,10 +210,18 @@ public class GameState {
                 correctClassifications++;
                 itemsClassifiedCorrectly++;
             } else if (item.mark == Item.InspectionMark.UNMARKED) {
-                // Unmarked items count as wrong
-                wrong++;
-                score -= 15;
-                itemsClassifiedIncorrectly++;
+                // Unmarked items default to CLEAR
+                if (!actuallyForbidden) {
+                    correct++;
+                    correctClassifications++;
+                    itemsClassifiedCorrectly++;
+                    score += 10;
+                } else {
+                    // Missed a forbidden item
+                    wrong++;
+                    score -= 15;
+                    itemsClassifiedIncorrectly++;
+                }
             } else {
                 // Wrong classification
                 wrong++;
