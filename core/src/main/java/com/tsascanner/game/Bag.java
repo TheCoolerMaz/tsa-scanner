@@ -11,7 +11,8 @@ public class Bag {
 
     public enum BagState {
         ON_BELT,
-        INSPECTING,
+        PULLED,       // pulled to inspection queue
+        INSPECTING,   // currently being inspected
         PASSED,
         FLAGGED
     }
@@ -55,9 +56,10 @@ public class Bag {
         }
     }
 
-    public boolean containsWeapon() {
+    /** Check if the bag contains any item forbidden by the given shift config. */
+    public boolean containsForbidden(ShiftConfig config) {
         for (Item item : contents) {
-            if (item.isWeapon()) return true;
+            if (config.isForbidden(item)) return true;
         }
         return false;
     }

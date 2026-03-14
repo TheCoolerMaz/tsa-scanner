@@ -3,15 +3,9 @@ package com.tsascanner.game;
 /**
  * Represents an item inside a bag.
  * Contains shape data for geometry-only rendering.
+ * Uses a tag-based system for classification (e.g., "blade", "gun", "liquid").
  */
 public class Item {
-
-    public enum ItemCategory {
-        HARMLESS,
-        WEAPON,
-        DISGUISED_WEAPON,
-        SUSPICIOUS_HARMLESS
-    }
 
     public enum ShapeType {
         RECT,
@@ -58,23 +52,47 @@ public class Item {
         }
     }
 
+    /** Classification state for inspection. */
+    public enum InspectionMark {
+        UNMARKED,
+        MARKED_CLEAR,
+        MARKED_FORBIDDEN
+    }
+
     public final String name;
-    public final ItemCategory category;
+    public final String[] tags;
     public final ShapePart[] parts;
     public final int minShift; // earliest shift this item can appear
 
     // Position within a bag (set when placed into a bag)
     public float bagX, bagY;
 
-    public Item(String name, ItemCategory category, int minShift, ShapePart... parts) {
+    // Inspection state
+    public InspectionMark mark = InspectionMark.UNMARKED;
+
+    public Item(String name, String[] tags, int minShift, ShapePart... parts) {
         this.name = name;
-        this.category = category;
+        this.tags = tags;
         this.minShift = minShift;
         this.parts = parts;
     }
 
-    public boolean isWeapon() {
-        return category == ItemCategory.WEAPON || category == ItemCategory.DISGUISED_WEAPON;
+    /** Check if the item has a specific tag. */
+    public boolean hasTag(String tag) {
+        for (String t : tags) {
+            if (t.equals(tag)) return true;
+        }
+        return false;
+    }
+
+    /** Check if the item has any of the given tags. */
+    public boolean hasAnyTag(String... checkTags) {
+        for (String ct : checkTags) {
+            for (String t : tags) {
+                if (t.equals(ct)) return true;
+            }
+        }
+        return false;
     }
 
     /** Create a copy for placement in a bag. */
@@ -84,6 +102,8 @@ public class Item {
             ShapePart p = parts[i];
             copied[i] = new ShapePart(p.type, p.offsetX, p.offsetY, p.width, p.height, p.rotation);
         }
-        return new Item(name, category, minShift, copied);
+        String[] tagsCopy = new String[tags.length];
+        System.arraycopy(tags, 0, tagsCopy, 0, tags.length);
+        return new Item(name, tagsCopy, minShift, copied);
     }
 }

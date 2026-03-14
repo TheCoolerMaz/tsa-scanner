@@ -10,19 +10,22 @@ import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.MathUtils;
+import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 import com.tsascanner.TsaGame;
 import com.tsascanner.game.Bag;
 import com.tsascanner.game.BagGenerator;
 import com.tsascanner.game.GameState;
 import com.tsascanner.game.Item;
+import com.tsascanner.game.ShiftConfig;
 import com.tsascanner.screens.transitions.FadeTransition;
 
 /**
  * Main gameplay screen — TSA checkpoint scanner.
  *
- * Bags move continuously on the conveyor. X-ray is always active within
- * the scan zone — player must flag/pass while the bag is inside the box.
+ * Split-screen layout:
+ * - Top half: conveyor belt with bags, x-ray scan zone
+ * - Bottom half: inspection zone for pulled bags
  */
 public class PlayScreen extends GameScreen {
 
@@ -33,7 +36,6 @@ public class PlayScreen extends GameScreen {
     // ===== Colors =====
     private static final Color COL_BG            = new Color(0.08f, 0.08f, 0.14f, 1f);
     private static final Color COL_TOP_BAR       = new Color(0.12f, 0.12f, 0.20f, 1f);
-    private static final Color COL_BOTTOM_BAR    = new Color(0.10f, 0.10f, 0.18f, 1f);
     private static final Color COL_BELT          = new Color(0.25f, 0.25f, 0.28f, 1f);
     private static final Color COL_BELT_MARKS    = new Color(0.35f, 0.35f, 0.38f, 1f);
     private static final Color COL_BAG_NORMAL    = new Color(0.45f, 0.35f, 0.25f, 1f);
@@ -42,28 +44,39 @@ public class PlayScreen extends GameScreen {
     private static final Color COL_XRAY_OUTLINE  = new Color(0.15f, 0.30f, 0.60f, 1f);
     private static final Color COL_XRAY_ITEM     = new Color(1.0f, 0.6f, 0.1f, 1f);
     private static final Color COL_XRAY_GLOW     = new Color(1.0f, 0.7f, 0.2f, 0.3f);
-    // Debug colors — weapons red, safe green
-    private static final Color COL_XRAY_WEAPON      = new Color(1.0f, 0.15f, 0.15f, 1f);
-    private static final Color COL_XRAY_WEAPON_GLOW = new Color(1.0f, 0.2f, 0.2f, 0.3f);
-    private static final Color COL_XRAY_SAFE        = new Color(0.15f, 0.9f, 0.3f, 1f);
-    private static final Color COL_XRAY_SAFE_GLOW   = new Color(0.2f, 0.9f, 0.3f, 0.3f);
     private static final Color COL_SCAN_ZONE     = new Color(0.05f, 0.12f, 0.30f, 0.25f);
     private static final Color COL_SCAN_BORDER   = new Color(0.2f, 0.4f, 0.8f, 0.6f);
     private static final Color COL_CORRECT       = new Color(0.2f, 0.9f, 0.3f, 1f);
     private static final Color COL_WRONG         = new Color(0.9f, 0.2f, 0.2f, 1f);
     private static final Color COL_HUD_TEXT      = new Color(0.85f, 0.85f, 0.90f, 1f);
     private static final Color COL_OVERLAY       = new Color(0f, 0f, 0f, 0.75f);
+    private static final Color COL_DIVIDER       = new Color(0.3f, 0.3f, 0.4f, 1f);
+    private static final Color COL_INSPECT_BG    = new Color(0.06f, 0.06f, 0.12f, 1f);
+    private static final Color COL_REF_CARD      = new Color(0.10f, 0.10f, 0.18f, 1f);
+    private static final Color COL_SELECTED      = new Color(0.3f, 0.7f, 1.0f, 1f);
+    private static final Color COL_MARK_CLEAR    = new Color(0.2f, 0.9f, 0.3f, 0.8f);
+    private static final Color COL_MARK_FORBID   = new Color(0.9f, 0.2f, 0.2f, 0.8f);
+    private static final Color COL_DIM_TEXT      = new Color(0.5f, 0.5f, 0.6f, 1f);
 
-    // ===== Layout =====
+    // ===== Layout — Conveyor Zone (top half) =====
     private static final float TOP_BAR_Y = 250;
     private static final float TOP_BAR_H = 20;
-    private static final float BOTTOM_BAR_Y = 0;
-    private static final float BOTTOM_BAR_H = 45;
-    private static final float BELT_Y = 65;
-    private static final float BELT_H = 35;
+    private static final float CONVEYOR_BOTTOM = 150;
+    private static final float BELT_Y = 160;
+    private static final float BELT_H = 25;
     private static final float SCAN_ZONE_X = 140;
     private static final float SCAN_ZONE_W = 200;
-    private static final float SCAN_ZONE_TOP = 215;
+    private static final float SCAN_ZONE_TOP = 240;
+
+    // ===== Layout — Inspection Zone (bottom half) =====
+    private static final float INSPECT_TOP = 145;
+    private static final float INSPECT_BOTTOM = 0;
+    private static final float INSPECT_ITEMS_Y = 40;
+    private static final float INSPECT_ITEMS_H = 80;
+    private static final float INSPECT_ITEM_SPACING = 65;
+    private static final float INSPECT_ITEM_SIZE = 50;
+    private static final float REF_CARD_X = 320;
+    private static final float REF_CARD_W = 155;
 
     // ===== Rendering =====
     private OrthographicCamera camera;
@@ -75,17 +88,19 @@ public class PlayScreen extends GameScreen {
 
     // ===== Game State =====
     private GameState state;
-    private Bag currentBag;
+    private Bag currentBeltBag;
     private float beltAnimOffset;
     private boolean waitingForNextBag;
     private float nextBagDelay;
     private boolean showResults;
-    private boolean decided; // has the player made a decision on the current bag?
-    private boolean speedBoost; // SPACE held for 2x speed
+    private boolean speedBoost;
 
     // ===== Feedback flash =====
     private float flashTimer;
     private Color flashColor;
+
+    // Mouse unprojection helper
+    private final Vector3 mouseWorld = new Vector3();
 
     @Override
     public void show() {
@@ -105,13 +120,11 @@ public class PlayScreen extends GameScreen {
         state = new GameState();
         state.reset(1);
 
-        // Spawn first bag
-        spawnNextBag();
-
         showResults = false;
         flashTimer = 0;
         beltAnimOffset = 0;
         waitingForNextBag = false;
+        currentBeltBag = null;
     }
 
     @Override
@@ -120,8 +133,10 @@ public class PlayScreen extends GameScreen {
 
         if (showResults) {
             handleResultsInput();
+        } else if (state.showBriefing) {
+            handleBriefingInput();
         } else {
-            handleInput();
+            handleInput(delta);
             update(delta);
         }
 
@@ -140,16 +155,23 @@ public class PlayScreen extends GameScreen {
         drawBackground();
         drawConveyorBelt();
         drawScanZone();
-        if (currentBag != null) {
-            drawBag();
+        if (currentBeltBag != null) {
+            drawBeltBag();
         }
+        drawDivider();
+        drawInspectionZone();
         drawFlash();
 
         batch.setProjectionMatrix(camera.combined);
         batch.begin();
         drawHUD();
         drawFeedback();
+        drawInspectionText();
         batch.end();
+
+        if (state.showBriefing) {
+            drawBriefing();
+        }
 
         if (showResults) {
             drawResults();
@@ -166,14 +188,14 @@ public class PlayScreen extends GameScreen {
 
         // Update shift timer
         state.shiftTimer += delta;
-        if (state.shiftTimer >= state.shiftDuration) {
+        if (state.shiftTimer >= state.shiftConfig.shiftDuration) {
             state.shiftOver = true;
             showResults = true;
             return;
         }
 
         // Belt speed with optional 2x boost
-        float speed = state.getBeltSpeed() * (speedBoost ? 2f : 1f);
+        float speed = state.shiftConfig.beltSpeed * (speedBoost ? 2f : 1f);
 
         // Animate belt
         beltAnimOffset += speed * delta;
@@ -194,48 +216,38 @@ public class PlayScreen extends GameScreen {
             nextBagDelay -= delta;
             if (nextBagDelay <= 0) {
                 waitingForNextBag = false;
-                spawnNextBag();
+                spawnNextBeltBag();
             }
             return;
         }
 
-        // Move current bag — bags always move
-        if (currentBag != null) {
-            currentBag.x += speed * delta;
+        // Move current belt bag
+        if (currentBeltBag != null) {
+            currentBeltBag.x += speed * delta;
 
-            // Check if bag has left the scan zone without a decision
-            if (!decided && bagPastScanZone()) {
-                // Auto-pass: player didn't act in time
-                state.autoPass(currentBag);
-                triggerFlash(!currentBag.containsWeapon());
-                decided = true;
-            }
-
-            // Check if bag has exited the screen
-            if (currentBag.x > WORLD_W + 20) {
-                currentBag = null;
+            // Check if bag has left the screen — auto-pass
+            if (currentBeltBag.x > WORLD_W + 20) {
+                state.autoPassed(currentBeltBag);
+                if (currentBeltBag.containsForbidden(state.shiftConfig)) {
+                    triggerFlash(false);
+                }
+                currentBeltBag = null;
                 waitingForNextBag = true;
                 nextBagDelay = 0.3f;
             }
         }
     }
 
-    /** Is the bag currently overlapping the scan zone? */
+    /** Is the belt bag currently overlapping the scan zone? */
     private boolean bagInScanZone() {
-        if (currentBag == null) return false;
-        float bagRight = currentBag.x + currentBag.width;
-        return bagRight > SCAN_ZONE_X && currentBag.x < SCAN_ZONE_X + SCAN_ZONE_W;
-    }
-
-    /** Has the bag moved fully past the scan zone? */
-    private boolean bagPastScanZone() {
-        if (currentBag == null) return false;
-        return currentBag.x > SCAN_ZONE_X + SCAN_ZONE_W;
+        if (currentBeltBag == null) return false;
+        float bagRight = currentBeltBag.x + currentBeltBag.width;
+        return bagRight > SCAN_ZONE_X && currentBeltBag.x < SCAN_ZONE_X + SCAN_ZONE_W;
     }
 
     // ==================== INPUT ====================
 
-    private void handleInput() {
+    private void handleInput(float delta) {
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
             manager.pop(new FadeTransition(0.3f));
             return;
@@ -244,14 +256,65 @@ public class PlayScreen extends GameScreen {
         // Hold SPACE for 2x belt speed
         speedBoost = Gdx.input.isKeyPressed(Input.Keys.SPACE);
 
-        // Flag with D — only while bag is in scan zone and undecided
-        if (currentBag != null && !decided && bagInScanZone()) {
+        // D — pull bag to inspection (only while in scan zone)
+        if (currentBeltBag != null && bagInScanZone()) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.D)) {
-                boolean wasWeapon = currentBag.containsWeapon();
-                state.scoreFlag(currentBag);
-                triggerFlash(wasWeapon);
-                decided = true;
+                state.pullBag(currentBeltBag);
+                currentBeltBag = null;
+                waitingForNextBag = true;
+                nextBagDelay = 0.3f;
             }
+        }
+
+        // Inspection controls — only when a bag is being inspected
+        if (state.currentInspectionBag != null) {
+            // Mouse click to select item
+            if (Gdx.input.justTouched()) {
+                mouseWorld.set(Gdx.input.getX(), Gdx.input.getY(), 0);
+                camera.unproject(mouseWorld);
+
+                // Check if click is in the inspection items area
+                if (mouseWorld.y >= INSPECT_BOTTOM && mouseWorld.y <= INSPECT_TOP) {
+                    int count = state.currentInspectionBag.contents.size();
+                    float startX = 10;
+                    for (int i = 0; i < count; i++) {
+                        float ix = startX + i * INSPECT_ITEM_SPACING + INSPECT_ITEM_SIZE / 2;
+                        float iy = INSPECT_ITEMS_Y + INSPECT_ITEMS_H / 2;
+                        float halfSize = INSPECT_ITEM_SIZE / 2 + 4;
+                        if (mouseWorld.x >= ix - halfSize && mouseWorld.x <= ix + halfSize
+                            && mouseWorld.y >= iy - halfSize && mouseWorld.y <= iy + halfSize) {
+                            state.selectedItemIndex = i;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // A — mark selected as CLEAR
+            if (Gdx.input.isKeyJustPressed(Input.Keys.A)) {
+                state.markSelectedClear();
+            }
+
+            // S — mark selected as FORBIDDEN
+            if (Gdx.input.isKeyJustPressed(Input.Keys.S)) {
+                state.markSelectedForbidden();
+            }
+
+            // ENTER — submit inspected bag
+            if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER)) {
+                boolean allCorrect = state.submitInspection();
+                triggerFlash(allCorrect);
+            }
+        }
+    }
+
+    private void handleBriefingInput() {
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER)) {
+            state.showBriefing = false;
+            spawnNextBeltBag();
+        }
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
+            manager.pop(new FadeTransition(0.3f));
         }
     }
 
@@ -265,7 +328,8 @@ public class PlayScreen extends GameScreen {
             } else {
                 state.nextShift();
                 showResults = false;
-                spawnNextBag();
+                currentBeltBag = null;
+                waitingForNextBag = false;
             }
         }
 
@@ -276,16 +340,16 @@ public class PlayScreen extends GameScreen {
 
     // ==================== HELPERS ====================
 
-    private void spawnNextBag() {
-        float weaponChance = 0.35f;
-        if (MathUtils.random() < weaponChance) {
-            currentBag = BagGenerator.generateWeaponBag(state.shiftNumber);
+    private void spawnNextBeltBag() {
+        ShiftConfig config = state.shiftConfig;
+        float forbiddenChance = 0.38f;
+        if (MathUtils.random() < forbiddenChance) {
+            currentBeltBag = BagGenerator.generateForbiddenBag(config);
         } else {
-            currentBag = BagGenerator.generate(state.shiftNumber);
+            currentBeltBag = BagGenerator.generateCleanBag(config);
         }
-        currentBag.x = -currentBag.width - MathUtils.random(10f, 40f);
-        currentBag.y = BELT_Y + BELT_H;
-        decided = false;
+        currentBeltBag.x = -currentBeltBag.width - MathUtils.random(10f, 40f);
+        currentBeltBag.y = BELT_Y + BELT_H;
     }
 
     private void triggerFlash(boolean correct) {
@@ -297,10 +361,12 @@ public class PlayScreen extends GameScreen {
 
     private void drawBackground() {
         shapes.begin(ShapeRenderer.ShapeType.Filled);
+        // Top bar
         shapes.setColor(COL_TOP_BAR);
         shapes.rect(0, TOP_BAR_Y, WORLD_W, TOP_BAR_H);
-        shapes.setColor(COL_BOTTOM_BAR);
-        shapes.rect(0, BOTTOM_BAR_Y, WORLD_W, BOTTOM_BAR_H);
+        // Inspection zone background
+        shapes.setColor(COL_INSPECT_BG);
+        shapes.rect(0, INSPECT_BOTTOM, WORLD_W, INSPECT_TOP);
         shapes.end();
     }
 
@@ -341,30 +407,30 @@ public class PlayScreen extends GameScreen {
         shapes.setColor(COL_SCAN_BORDER);
         shapes.rect(SCAN_ZONE_X, BELT_Y, SCAN_ZONE_W, zoneH);
 
-        // Scan line accents at top and bottom
+        // Scan line accents
         shapes.setColor(COL_SCAN_BORDER.r, COL_SCAN_BORDER.g, COL_SCAN_BORDER.b, 0.3f);
         shapes.line(SCAN_ZONE_X, BELT_Y + zoneH / 3, SCAN_ZONE_X + SCAN_ZONE_W, BELT_Y + zoneH / 3);
         shapes.line(SCAN_ZONE_X, BELT_Y + zoneH * 2 / 3, SCAN_ZONE_X + SCAN_ZONE_W, BELT_Y + zoneH * 2 / 3);
         shapes.end();
     }
 
-    private void drawBag() {
-        float bx = currentBag.x;
-        float by = currentBag.y;
-        float bw = currentBag.width;
-        float bh = currentBag.height;
+    private void drawBeltBag() {
+        float bx = currentBeltBag.x;
+        float by = currentBeltBag.y;
+        float bw = currentBeltBag.width;
+        float bh = currentBeltBag.height;
 
         boolean inZone = bagInScanZone();
 
-        if (inZone && !decided) {
-            // X-ray view — automatic when inside scan zone
+        if (inZone) {
+            // X-ray view — all items in same neutral orange color
             shapes.begin(ShapeRenderer.ShapeType.Filled);
             shapes.setColor(COL_XRAY_BG);
             shapes.rect(bx, by, bw, bh);
             shapes.end();
 
-            // Draw items
-            drawItems(bx + bw / 2, by + bh / 2);
+            // Draw items — all in same orange (no debug colors)
+            drawBeltItems(bx + bw / 2, by + bh / 2);
 
             // Bag outline
             shapes.begin(ShapeRenderer.ShapeType.Line);
@@ -391,27 +457,138 @@ public class PlayScreen extends GameScreen {
         }
     }
 
-    private void drawItems(float centerX, float centerY) {
-        for (Item item : currentBag.contents) {
+    /** Draw items on the belt — all in the same neutral orange color. */
+    private void drawBeltItems(float centerX, float centerY) {
+        for (Item item : currentBeltBag.contents) {
             float ix = centerX + item.bagX;
             float iy = centerY + item.bagY;
-
-            // Debug: red for weapons, green for safe
-            Color solidCol = item.isWeapon() ? COL_XRAY_WEAPON : COL_XRAY_SAFE;
-            Color glowCol = item.isWeapon() ? COL_XRAY_WEAPON_GLOW : COL_XRAY_SAFE_GLOW;
 
             for (Item.ShapePart part : item.parts) {
                 float px = ix + part.offsetX;
                 float py = iy + part.offsetY;
 
                 // Glow
-                drawShapePart(part, px, py, glowCol, 2f, true);
+                drawShapePart(part, px, py, COL_XRAY_GLOW, 2f, true);
                 // Solid
-                drawShapePart(part, px, py, solidCol, 0f, true);
+                drawShapePart(part, px, py, COL_XRAY_ITEM, 0f, true);
                 // Outline
-                drawShapePart(part, px, py, solidCol, 0f, false);
+                drawShapePart(part, px, py, COL_XRAY_ITEM, 0f, false);
             }
         }
+    }
+
+    private void drawDivider() {
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(COL_DIVIDER);
+        shapes.rect(0, INSPECT_TOP, WORLD_W, 2);
+        shapes.end();
+    }
+
+    private void drawInspectionZone() {
+        // Reference card background (right side)
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(COL_REF_CARD);
+        shapes.rect(REF_CARD_X, INSPECT_BOTTOM, REF_CARD_W, INSPECT_TOP);
+        shapes.end();
+
+        // Reference card border
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(COL_DIVIDER);
+        shapes.rect(REF_CARD_X, INSPECT_BOTTOM, REF_CARD_W, INSPECT_TOP);
+        shapes.end();
+
+        // Draw inspection items if a bag is being inspected
+        if (state.currentInspectionBag != null) {
+            drawInspectionItems();
+        }
+    }
+
+    /** Draw inspection items laid out in a row. */
+    private void drawInspectionItems() {
+        Bag bag = state.currentInspectionBag;
+        int count = bag.contents.size();
+        float startX = 10;
+
+        for (int i = 0; i < count; i++) {
+            Item item = bag.contents.get(i);
+            float ix = startX + i * INSPECT_ITEM_SPACING + INSPECT_ITEM_SIZE / 2;
+            float iy = INSPECT_ITEMS_Y + INSPECT_ITEMS_H / 2;
+
+            // Item box background
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(COL_XRAY_BG);
+            shapes.rect(ix - INSPECT_ITEM_SIZE / 2, iy - INSPECT_ITEM_SIZE / 2,
+                        INSPECT_ITEM_SIZE, INSPECT_ITEM_SIZE);
+            shapes.end();
+
+            // Draw the item parts (scaled to fit in the box)
+            float scale = getItemScale(item);
+            for (Item.ShapePart part : item.parts) {
+                float px = ix + part.offsetX * scale;
+                float py = iy + part.offsetY * scale;
+
+                Item.ShapePart scaled = new Item.ShapePart(part.type, 0, 0,
+                    part.width * scale, part.height * scale, part.rotation);
+                drawShapePart(scaled, px, py, COL_XRAY_ITEM, 0f, true);
+            }
+
+            // Selection highlight
+            if (i == state.selectedItemIndex) {
+                shapes.begin(ShapeRenderer.ShapeType.Line);
+                shapes.setColor(COL_SELECTED);
+                float pad = 3;
+                shapes.rect(ix - INSPECT_ITEM_SIZE / 2 - pad, iy - INSPECT_ITEM_SIZE / 2 - pad,
+                            INSPECT_ITEM_SIZE + pad * 2, INSPECT_ITEM_SIZE + pad * 2);
+                shapes.rect(ix - INSPECT_ITEM_SIZE / 2 - pad + 1, iy - INSPECT_ITEM_SIZE / 2 - pad + 1,
+                            INSPECT_ITEM_SIZE + pad * 2 - 2, INSPECT_ITEM_SIZE + pad * 2 - 2);
+                shapes.end();
+            }
+
+            // Mark overlay
+            if (item.mark == Item.InspectionMark.MARKED_CLEAR) {
+                drawCheckMark(ix, iy);
+            } else if (item.mark == Item.InspectionMark.MARKED_FORBIDDEN) {
+                drawXMark(ix, iy);
+            }
+
+            // Item box border
+            shapes.begin(ShapeRenderer.ShapeType.Line);
+            shapes.setColor(COL_DIVIDER);
+            shapes.rect(ix - INSPECT_ITEM_SIZE / 2, iy - INSPECT_ITEM_SIZE / 2,
+                        INSPECT_ITEM_SIZE, INSPECT_ITEM_SIZE);
+            shapes.end();
+        }
+    }
+
+    /** Calculate scale factor to fit item parts within inspection box. */
+    private float getItemScale(Item item) {
+        float maxExtent = 1;
+        for (Item.ShapePart part : item.parts) {
+            float ex = Math.abs(part.offsetX) + part.width / 2;
+            float ey = Math.abs(part.offsetY) + part.height / 2;
+            maxExtent = Math.max(maxExtent, Math.max(ex, ey));
+        }
+        float targetSize = INSPECT_ITEM_SIZE / 2 - 4;
+        return Math.min(1.0f, targetSize / maxExtent);
+    }
+
+    /** Draw a green check mark overlay. */
+    private void drawCheckMark(float cx, float cy) {
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(COL_MARK_CLEAR);
+        // Simple check: two rectangles forming a V shape
+        shapes.rect(cx - 8, cy - 2, 8, 3, 8, 3, 1, 1, -45);
+        shapes.rect(cx - 2, cy - 2, 14, 3, 14, 3, 1, 1, 30);
+        shapes.end();
+    }
+
+    /** Draw a red X mark overlay. */
+    private void drawXMark(float cx, float cy) {
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(COL_MARK_FORBID);
+        shapes.rect(cx - 1.5f, cy - 1.5f, 1.5f, 1.5f, 16, 3, 1, 1, 45);
+        shapes.rect(cx - 1.5f, cy - 1.5f, 1.5f, 1.5f, 16, 3, 1, 1, -45);
+        shapes.end();
     }
 
     private void drawShapePart(Item.ShapePart part, float px, float py,
@@ -469,39 +646,106 @@ public class PlayScreen extends GameScreen {
 
         // Top bar
         font.draw(batch, "SHIFT " + state.shiftNumber, 8, TOP_BAR_Y + 15);
-        font.draw(batch, "SCORE: " + state.score, 120, TOP_BAR_Y + 15);
-        font.draw(batch, "TIME: " + state.getTimeRemaining(), 260, TOP_BAR_Y + 15);
-        font.draw(batch, "BAGS: " + state.bagsProcessed + "/" + state.bagsRequired, 380, TOP_BAR_Y + 15);
+        font.draw(batch, "SCORE: " + state.score, 100, TOP_BAR_Y + 15);
+        font.draw(batch, "TIME: " + state.getTimeRemaining(), 210, TOP_BAR_Y + 15);
 
         // Strikes
+        String strikesText = "X:" + state.strikes + "/" + GameState.MAX_STRIKES;
         if (state.strikes > 0) {
             font.setColor(COL_WRONG);
-            String strikesText = "STRIKES: " + state.strikes + "/" + GameState.MAX_STRIKES;
-            layout.setText(font, strikesText);
-            font.draw(batch, strikesText, WORLD_W - layout.width - 8, TOP_BAR_Y + 15);
+        }
+        font.draw(batch, strikesText, 330, TOP_BAR_Y + 15);
+        font.setColor(COL_HUD_TEXT);
+
+        // Queue count
+        String queueText = "Q:" + state.inspectionQueue.size();
+        if (state.currentInspectionBag != null) {
+            queueText += "+1";
+        }
+        font.draw(batch, queueText, 420, TOP_BAR_Y + 15);
+
+        // Conveyor zone prompt
+        font.getData().setScale(0.6f);
+        if (currentBeltBag != null && bagInScanZone()) {
+            font.setColor(COL_SCAN_BORDER);
+            String prompt = "[D] PULL TO INSPECT";
+            layout.setText(font, prompt);
+            font.draw(batch, prompt, SCAN_ZONE_X + (SCAN_ZONE_W - layout.width) / 2, SCAN_ZONE_TOP + 8);
             font.setColor(COL_HUD_TEXT);
         }
 
-        // Bottom bar
-        font.getData().setScale(0.7f);
-        font.draw(batch, "[D] FLAG    [SPACE] SPEED UP", 8, BOTTOM_BAR_H - 10);
-
-        // Streak
-        String streakText = "STREAK: x" + (state.streak > 0 ? String.format("%.1f", state.multiplier) : "1");
-        layout.setText(font, streakText);
-        font.draw(batch, streakText, WORLD_W - layout.width - 8, BOTTOM_BAR_H - 10);
-
-        // Scan zone prompt when bag is inside
-        if (currentBag != null && bagInScanZone() && !decided) {
-            font.setColor(COL_SCAN_BORDER);
-            font.getData().setScale(0.6f);
-            String prompt = "SCANNING...";
-            layout.setText(font, prompt);
-            font.draw(batch, prompt, SCAN_ZONE_X + (SCAN_ZONE_W - layout.width) / 2, SCAN_ZONE_TOP + 12);
+        // Speed indicator
+        if (speedBoost) {
+            font.setColor(COL_CORRECT);
+            font.draw(batch, ">> 2x SPEED >>", 8, CONVEYOR_BOTTOM + 8);
             font.setColor(COL_HUD_TEXT);
         }
 
         font.getData().setScale(scale);
+    }
+
+    /** Draw text in the inspection zone. */
+    private void drawInspectionText() {
+        float scale = font.getScaleX();
+
+        // Reference card text (right side)
+        font.setColor(COL_HUD_TEXT);
+        font.getData().setScale(0.6f);
+        font.draw(batch, "FORBIDDEN:", REF_CARD_X + 5, INSPECT_TOP - 5);
+
+        font.getData().setScale(0.5f);
+        ShiftConfig config = state.shiftConfig;
+        float tagY = INSPECT_TOP - 20;
+        for (String tag : config.forbiddenTags) {
+            font.setColor(COL_WRONG);
+            font.draw(batch, "* " + tag.toUpperCase(), REF_CARD_X + 8, tagY);
+            tagY -= 12;
+        }
+
+        // Controls hint at bottom of inspection zone
+        font.setColor(COL_DIM_TEXT);
+        font.getData().setScale(0.5f);
+        font.draw(batch, "[A] CLEAR  [S] FORBID  [ENTER] SUBMIT", 8, 12);
+
+        if (state.currentInspectionBag != null) {
+            // Item name when selected
+            if (state.selectedItemIndex >= 0 && state.selectedItemIndex < state.currentInspectionBag.contents.size()) {
+                Item sel = state.currentInspectionBag.contents.get(state.selectedItemIndex);
+                font.setColor(COL_SELECTED);
+                font.getData().setScale(0.6f);
+                font.draw(batch, sel.name, 10, INSPECT_ITEMS_Y + INSPECT_ITEMS_H + 18);
+
+                // Show tags
+                font.getData().setScale(0.45f);
+                font.setColor(COL_DIM_TEXT);
+                StringBuilder tagStr = new StringBuilder("Tags: ");
+                for (int t = 0; t < sel.tags.length; t++) {
+                    if (t > 0) tagStr.append(", ");
+                    tagStr.append(sel.tags[t]);
+                }
+                font.draw(batch, tagStr.toString(), 10, INSPECT_ITEMS_Y + INSPECT_ITEMS_H + 8);
+            }
+
+            // Bag items count
+            font.setColor(COL_HUD_TEXT);
+            font.getData().setScale(0.5f);
+            int marked = 0;
+            for (Item it : state.currentInspectionBag.contents) {
+                if (it.mark != Item.InspectionMark.UNMARKED) marked++;
+            }
+            String bagInfo = "Items: " + marked + "/" + state.currentInspectionBag.contents.size() + " marked";
+            font.draw(batch, bagInfo, 10, 25);
+        } else {
+            // No bag being inspected
+            font.setColor(COL_DIM_TEXT);
+            font.getData().setScale(0.6f);
+            String noBag = "NO BAG - Pull suspicious bags with [D]";
+            layout.setText(font, noBag);
+            font.draw(batch, noBag, (REF_CARD_X - layout.width) / 2, INSPECT_ITEMS_Y + INSPECT_ITEMS_H / 2 + 5);
+        }
+
+        font.getData().setScale(scale);
+        font.setColor(COL_HUD_TEXT);
     }
 
     private void drawFeedback() {
@@ -510,13 +754,57 @@ public class PlayScreen extends GameScreen {
             Color col = state.feedbackCorrect ? COL_CORRECT : COL_WRONG;
             font.setColor(col.r, col.g, col.b, alpha);
 
-            font.getData().setScale(1.2f);
+            font.getData().setScale(1.0f);
             layout.setText(font, state.feedbackText);
-            font.draw(batch, state.feedbackText, (WORLD_W - layout.width) / 2, 240);
+            font.draw(batch, state.feedbackText, (WORLD_W - layout.width) / 2,
+                      CONVEYOR_BOTTOM + 45);
 
             font.getData().setScale(0.8f);
             font.setColor(COL_HUD_TEXT);
         }
+    }
+
+    private void drawBriefing() {
+        shapes.setProjectionMatrix(camera.combined);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(COL_OVERLAY);
+        shapes.rect(0, 0, WORLD_W, WORLD_H);
+        shapes.end();
+
+        batch.setProjectionMatrix(camera.combined);
+        batch.begin();
+        font.setColor(COL_HUD_TEXT);
+
+        ShiftConfig config = state.shiftConfig;
+
+        // Title
+        font.getData().setScale(1.0f);
+        layout.setText(font, config.briefingTitle);
+        font.draw(batch, config.briefingTitle, (WORLD_W - layout.width) / 2, 220);
+
+        // Briefing lines
+        font.getData().setScale(0.7f);
+        float lineY = 185;
+        for (String line : config.briefingLines) {
+            if (line.isEmpty()) {
+                lineY -= 10;
+                continue;
+            }
+            layout.setText(font, line);
+            font.draw(batch, line, (WORLD_W - layout.width) / 2, lineY);
+            lineY -= 18;
+        }
+
+        // Prompt
+        font.getData().setScale(0.6f);
+        font.setColor(COL_SCAN_BORDER);
+        String prompt = "Press ENTER to begin";
+        layout.setText(font, prompt);
+        font.draw(batch, prompt, (WORLD_W - layout.width) / 2, 60);
+
+        font.setColor(COL_HUD_TEXT);
+        font.getData().setScale(0.8f);
+        batch.end();
     }
 
     private void drawResults() {
@@ -536,22 +824,25 @@ public class PlayScreen extends GameScreen {
         String title = "SHIFT " + state.shiftNumber + " COMPLETE";
         if (rating.equals("FIRED")) title = "YOU'RE FIRED!";
         layout.setText(font, title);
-        font.draw(batch, title, (WORLD_W - layout.width) / 2, 210);
+        font.draw(batch, title, (WORLD_W - layout.width) / 2, 220);
 
         font.getData().setScale(0.7f);
 
+        int totalBags = state.bagsPassed + state.bagsInspected;
         String[] lines = {
-            "Bags Processed: " + state.bagsProcessed,
+            "Bags Processed: " + totalBags + " (passed: " + state.bagsPassed + ", inspected: " + state.bagsInspected + ")",
+            "Items Classified: " + state.totalClassifications,
+            "Correct: " + state.itemsClassifiedCorrectly + "  Wrong: " + state.itemsClassifiedIncorrectly,
             "Accuracy: " + String.format("%.0f%%", state.getAccuracy()),
             "Score: " + state.score,
             "Rating: " + rating
         };
 
-        float lineY = 180;
+        float lineY = 185;
         for (String line : lines) {
             layout.setText(font, line);
             font.draw(batch, line, (WORLD_W - layout.width) / 2, lineY);
-            lineY -= 20;
+            lineY -= 18;
         }
 
         font.getData().setScale(0.6f);
@@ -562,7 +853,7 @@ public class PlayScreen extends GameScreen {
             prompt = "Press ENTER for next shift";
         }
         layout.setText(font, prompt);
-        font.draw(batch, prompt, (WORLD_W - layout.width) / 2, 80);
+        font.draw(batch, prompt, (WORLD_W - layout.width) / 2, 60);
 
         font.getData().setScale(0.8f);
         batch.end();
