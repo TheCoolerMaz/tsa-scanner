@@ -1,0 +1,99 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        maven { url 'https://oss.sonatype.org/content/repositories/snapshots/' }
+        google()
+    }
+}
+
+allprojects {
+    repositories {
+        mavenCentral()
+        maven { url 'https://oss.sonatype.org/content/repositories/snapshots/' }
+        maven { url 'https://jitpack.io' }
+        google()
+    }
+
+    version = '0.1.0'
+    ext {
+        appName = 'TSA Scanner'
+        gdxVersion = '1.13.1'
+        ashleyVersion = '1.7.4'
+        gdxVfxVersion = '0.5.4'
+    }
+}
+
+project(':core') {
+    apply plugin: 'java-library'
+
+    java {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    dependencies {
+        api "com.badlogicgames.gdx:gdx:$gdxVersion"
+        api "com.badlogicgames.ashley:ashley:$ashleyVersion"
+        api "com.crashinvaders.vfx:gdx-vfx-core:$gdxVfxVersion"
+        api "com.crashinvaders.vfx:gdx-vfx-effects:$gdxVfxVersion"
+    }
+}
+
+project(':lwjgl3') {
+    apply plugin: 'java'
+    apply plugin: 'application'
+
+    java {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    sourceSets.main.resources.srcDirs += [rootProject.file('assets')]
+
+    mainClassName = 'com.tsascanner.lwjgl3.Lwjgl3Launcher'
+
+    dependencies {
+        implementation project(':core')
+        implementation "com.badlogicgames.gdx:gdx-backend-lwjgl3:$gdxVersion"
+        implementation "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-desktop"
+    }
+
+    jar {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+        archiveBaseName.set(appName)
+        from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
+        manifest {
+            attributes 'Main-Class': mainClassName
+        }
+    }
+
+    run {
+        workingDir = rootProject.file('assets')
+        setIgnoreExitValue(true)
+        
+        if (System.getProperty('os.name').toLowerCase().contains('mac')) {
+            jvmArgs += '-XstartOnFirstThread'
+        }
+    }
+}
+
+project(':html') {
+    apply plugin: 'java'
+    apply plugin: 'war'
+
+    java {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    sourceSets.main.java.srcDirs = ['src/main/java']
+
+    dependencies {
+        implementation project(':core')
+        implementation "com.badlogicgames.gdx:gdx:$gdxVersion:sources"
+        implementation "com.badlogicgames.gdx:gdx-backend-gwt:$gdxVersion"
+        implementation "com.badlogicgames.gdx:gdx-backend-gwt:$gdxVersion:sources"
+        implementation "com.badlogicgames.ashley:ashley:$ashleyVersion:sources"
+        implementation "com.google.jsinterop:jsinterop-annotations:2.0.0:sources"
+    }
+}
