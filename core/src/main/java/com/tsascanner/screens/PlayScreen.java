@@ -299,7 +299,7 @@ public class PlayScreen extends GameScreen {
                     mouseWorld.set(Gdx.input.getX(), Gdx.input.getY(), 0);
                     camera.unproject(mouseWorld);
                     scanZoneX = MathUtils.clamp(mouseWorld.x - dragOffsetX, 0, WORLD_W - SCAN_ZONE_W);
-                    scanZoneY = MathUtils.clamp(mouseWorld.y - dragOffsetY, CONVEYOR_BOTTOM, WORLD_H - TOP_BAR_H - SCAN_ZONE_H);
+                    scanZoneY = MathUtils.clamp(mouseWorld.y - dragOffsetY, 0, WORLD_H - TOP_BAR_H - SCAN_ZONE_H);
                 } else {
                     draggingScanner = false;
                 }
