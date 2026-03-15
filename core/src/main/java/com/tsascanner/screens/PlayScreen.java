@@ -104,6 +104,9 @@ public class PlayScreen extends GameScreen {
     private float flashTimer;
     private Color flashColor;
 
+    // Temp color for tinting
+    private final Color tmpColor = new Color();
+
     // Mouse unprojection helper
     private final Vector3 mouseWorld = new Vector3();
 
@@ -362,6 +365,28 @@ public class PlayScreen extends GameScreen {
         flashColor = correct ? COL_CORRECT : COL_WRONG;
     }
 
+    /** Lighten a color slightly for outlines. */
+    private Color lighten(Color c, float amount) {
+        tmpColor.set(
+            Math.min(1f, c.r + amount),
+            Math.min(1f, c.g + amount),
+            Math.min(1f, c.b + amount),
+            c.a
+        );
+        return tmpColor;
+    }
+
+    /** Get a color name string for a bag color. */
+    private String colorName(Bag.BagColor color) {
+        switch (color) {
+            case RED: return "RED";
+            case BLUE: return "BLUE";
+            case GREEN: return "GREEN";
+            case BROWN: return "BROWN";
+            default: return "?";
+        }
+    }
+
     // ==================== DRAWING ====================
 
     private void drawBackground() {
@@ -427,18 +452,36 @@ public class PlayScreen extends GameScreen {
 
         boolean inZone = bagInScanZone();
 
+        // Use bag color for fill and outline
+        Color bagFill = currentBeltBag.color.tint;
+        Color bagOutline = lighten(bagFill, 0.1f);
+
         // Always draw the normal opaque bag first
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(COL_BAG_NORMAL);
+        shapes.setColor(bagFill);
         shapes.rect(bx, by, bw, bh);
-        shapes.setColor(COL_BAG_OUTLINE);
+        shapes.setColor(bagOutline);
         shapes.rect(bx + bw * 0.3f, by + bh, bw * 0.1f, 6);
         shapes.rect(bx + bw * 0.6f, by + bh, bw * 0.1f, 6);
         shapes.end();
         shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(COL_BAG_OUTLINE);
+        shapes.setColor(bagOutline);
         shapes.rect(bx, by, bw, bh);
         shapes.end();
+
+        // Draw bag number on the bag
+        batch.setProjectionMatrix(camera.combined);
+        batch.begin();
+        float prevScale = font.getScaleX();
+        font.getData().setScale(0.5f);
+        font.setColor(1f, 1f, 1f, 0.9f);
+        String numStr = "#" + currentBeltBag.bagNumber;
+        layout.setText(font, numStr);
+        font.draw(batch, numStr, bx + bw / 2 - layout.width / 2, by + bh / 2 + layout.height / 2);
+        font.getData().setScale(prevScale);
+        font.setColor(COL_HUD_TEXT);
+        batch.end();
+        shapes.setProjectionMatrix(camera.combined);
 
         // If any part is in the scan zone, draw x-ray clipped to the zone
         if (inZone) {
@@ -458,9 +501,15 @@ public class PlayScreen extends GameScreen {
             Gdx.gl.glEnable(GL20.GL_SCISSOR_TEST);
             Gdx.gl.glScissor(sx, sy, sw, sh);
 
-            // X-ray bag fill
+            // X-ray bag fill — tinted slightly with bag color
             shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(COL_XRAY_BG);
+            tmpColor.set(
+                COL_XRAY_BG.r + bagFill.r * 0.08f,
+                COL_XRAY_BG.g + bagFill.g * 0.08f,
+                COL_XRAY_BG.b + bagFill.b * 0.08f,
+                COL_XRAY_BG.a
+            );
+            shapes.setColor(tmpColor);
             shapes.rect(bx, by, bw, bh);
             shapes.end();
 
@@ -477,14 +526,14 @@ public class PlayScreen extends GameScreen {
         }
     }
 
-    /** Draw items on the belt — debug: red=forbidden, green=safe. */
+    /** Draw items on the belt — debug: red=forbidden, green=safe (context-aware). */
     private void drawBeltItems(float centerX, float centerY) {
         for (Item item : currentBeltBag.contents) {
             float ix = centerX + item.bagX;
             float iy = centerY + item.bagY;
 
-            // Debug coloring based on forbidden status
-            boolean forbidden = state.shiftConfig.isForbidden(item);
+            // Debug coloring based on forbidden status (context-aware)
+            boolean forbidden = state.shiftConfig.isForbidden(item, currentBeltBag);
             Color solidCol = forbidden ? COL_DEBUG_FORBID : COL_DEBUG_SAFE;
             Color glowCol = forbidden ? COL_DEBUG_FORBID_GLOW : COL_DEBUG_SAFE_GLOW;
 
@@ -710,18 +759,84 @@ public class PlayScreen extends GameScreen {
     private void drawInspectionText() {
         float scale = font.getScaleX();
 
-        // Reference card text (right side)
+        // Reference card — show rules with color swatches
         font.setColor(COL_HUD_TEXT);
         font.getData().setScale(0.6f);
-        font.draw(batch, "FORBIDDEN:", REF_CARD_X + 5, INSPECT_TOP - 5);
+        font.draw(batch, "RULES:", REF_CARD_X + 5, INSPECT_TOP - 5);
 
-        font.getData().setScale(0.5f);
+        batch.end();
+
+        // Draw color swatches next to each rule
         ShiftConfig config = state.shiftConfig;
-        float tagY = INSPECT_TOP - 20;
-        for (String tag : config.forbiddenTags) {
-            font.setColor(COL_WRONG);
-            font.draw(batch, "* " + tag.toUpperCase(), REF_CARD_X + 8, tagY);
-            tagY -= 12;
+        float tagY = INSPECT_TOP - 18;
+
+        shapes.setProjectionMatrix(camera.combined);
+        for (int r = 0; r < config.rules.size(); r++) {
+            ShiftConfig.ForbiddenRule rule = config.rules.get(r);
+
+            // Color swatch
+            if (rule.requiredColor != null) {
+                shapes.begin(ShapeRenderer.ShapeType.Filled);
+                shapes.setColor(rule.requiredColor.tint);
+                shapes.rect(REF_CARD_X + 6, tagY - 8, 8, 8);
+                shapes.end();
+            }
+
+            // Highlight if this rule applies to the current inspection bag
+            if (state.currentInspectionBag != null && rule.appliesTo(state.currentInspectionBag)) {
+                shapes.begin(ShapeRenderer.ShapeType.Line);
+                shapes.setColor(COL_SELECTED);
+                shapes.rect(REF_CARD_X + 4, tagY - 10, REF_CARD_W - 8, 12);
+                shapes.end();
+            }
+
+            tagY -= 14;
+        }
+
+        batch.begin();
+
+        // Draw rule text
+        font.getData().setScale(0.42f);
+        tagY = INSPECT_TOP - 18;
+        for (int r = 0; r < config.rules.size(); r++) {
+            ShiftConfig.ForbiddenRule rule = config.rules.get(r);
+            float textX = REF_CARD_X + 16;
+
+            // Build label
+            String label = "";
+            if (rule.requiredColor != null) {
+                label += colorName(rule.requiredColor);
+            } else {
+                label += "ANY";
+            }
+            if (rule.oddOnly != null) {
+                label += rule.oddOnly ? " ODD" : " EVEN";
+            }
+            label += ": ";
+
+            // Is this rule active for current bag?
+            boolean active = state.currentInspectionBag != null && rule.appliesTo(state.currentInspectionBag);
+            font.setColor(active ? COL_SELECTED : COL_DIM_TEXT);
+            font.draw(batch, label, textX, tagY);
+
+            layout.setText(font, label);
+            float descX = textX + layout.width;
+
+            // Description
+            if (rule.forbiddenTags.length == 0) {
+                font.setColor(active ? COL_CORRECT : COL_DIM_TEXT);
+                font.draw(batch, "ALL OK", descX, tagY);
+            } else {
+                font.setColor(active ? COL_WRONG : COL_DIM_TEXT);
+                StringBuilder sb = new StringBuilder();
+                for (int t = 0; t < rule.forbiddenTags.length; t++) {
+                    if (t > 0) sb.append(", ");
+                    sb.append(rule.forbiddenTags[t].toUpperCase());
+                }
+                font.draw(batch, sb.toString(), descX, tagY);
+            }
+
+            tagY -= 14;
         }
 
         // Controls hint at bottom of inspection zone
@@ -730,9 +845,18 @@ public class PlayScreen extends GameScreen {
         font.draw(batch, "[A] CLEAR  [S] FORBID  [ENTER] SUBMIT", 8, 12);
 
         if (state.currentInspectionBag != null) {
+            Bag inspBag = state.currentInspectionBag;
+
+            // Bag info — color and number
+            font.setColor(inspBag.color.tint);
+            font.getData().setScale(0.55f);
+            String bagLabel = colorName(inspBag.color) + " BAG #" + inspBag.bagNumber;
+            font.draw(batch, bagLabel, 10, INSPECT_TOP - 5);
+            font.setColor(COL_HUD_TEXT);
+
             // Item name when selected
-            if (state.selectedItemIndex >= 0 && state.selectedItemIndex < state.currentInspectionBag.contents.size()) {
-                Item sel = state.currentInspectionBag.contents.get(state.selectedItemIndex);
+            if (state.selectedItemIndex >= 0 && state.selectedItemIndex < inspBag.contents.size()) {
+                Item sel = inspBag.contents.get(state.selectedItemIndex);
                 font.setColor(COL_SELECTED);
                 font.getData().setScale(0.6f);
                 font.draw(batch, sel.name, 10, INSPECT_ITEMS_Y + INSPECT_ITEMS_H + 18);
@@ -752,10 +876,10 @@ public class PlayScreen extends GameScreen {
             font.setColor(COL_HUD_TEXT);
             font.getData().setScale(0.5f);
             int marked = 0;
-            for (Item it : state.currentInspectionBag.contents) {
+            for (Item it : inspBag.contents) {
                 if (it.mark != Item.InspectionMark.UNMARKED) marked++;
             }
-            String bagInfo = "Items: " + marked + "/" + state.currentInspectionBag.contents.size() + " marked";
+            String bagInfo = "Items: " + marked + "/" + inspBag.contents.size() + " marked";
             font.draw(batch, bagInfo, 10, 25);
         } else {
             // No bag being inspected
@@ -802,19 +926,80 @@ public class PlayScreen extends GameScreen {
         // Title
         font.getData().setScale(1.0f);
         layout.setText(font, config.briefingTitle);
-        font.draw(batch, config.briefingTitle, (WORLD_W - layout.width) / 2, 220);
+        font.draw(batch, config.briefingTitle, (WORLD_W - layout.width) / 2, 230);
 
         // Briefing lines
-        font.getData().setScale(0.7f);
-        float lineY = 185;
+        font.getData().setScale(0.65f);
+        float lineY = 200;
         for (String line : config.briefingLines) {
             if (line.isEmpty()) {
-                lineY -= 10;
+                lineY -= 8;
                 continue;
             }
             layout.setText(font, line);
             font.draw(batch, line, (WORLD_W - layout.width) / 2, lineY);
-            lineY -= 18;
+            lineY -= 16;
+        }
+
+        batch.end();
+
+        // Draw rules with color swatches
+        lineY -= 4;
+        float ruleStartY = lineY;
+
+        shapes.setProjectionMatrix(camera.combined);
+        for (int r = 0; r < config.rules.size(); r++) {
+            ShiftConfig.ForbiddenRule rule = config.rules.get(r);
+            float swatchX = WORLD_W / 2 - 100;
+            float swatchY = ruleStartY - r * 16 - 10;
+
+            // Color swatch
+            if (rule.requiredColor != null) {
+                shapes.begin(ShapeRenderer.ShapeType.Filled);
+                shapes.setColor(rule.requiredColor.tint);
+                shapes.rect(swatchX, swatchY, 10, 10);
+                shapes.end();
+                shapes.begin(ShapeRenderer.ShapeType.Line);
+                shapes.setColor(1f, 1f, 1f, 0.3f);
+                shapes.rect(swatchX, swatchY, 10, 10);
+                shapes.end();
+            }
+        }
+
+        batch.begin();
+        font.getData().setScale(0.5f);
+
+        for (int r = 0; r < config.rules.size(); r++) {
+            ShiftConfig.ForbiddenRule rule = config.rules.get(r);
+            float textX = WORLD_W / 2 - 85;
+            float textY = ruleStartY - r * 16;
+
+            // Color label
+            String colorLabel;
+            if (rule.requiredColor != null) {
+                colorLabel = "[" + colorName(rule.requiredColor) + "]";
+            } else {
+                colorLabel = "[ALL]";
+            }
+            if (rule.oddOnly != null) {
+                colorLabel += rule.oddOnly ? " ODD" : " EVEN";
+            }
+            colorLabel += " ";
+
+            font.setColor(COL_HUD_TEXT);
+            font.draw(batch, colorLabel, textX, textY);
+
+            layout.setText(font, colorLabel);
+            float descX = textX + layout.width;
+
+            // Description
+            if (rule.forbiddenTags.length == 0) {
+                font.setColor(COL_CORRECT);
+                font.draw(batch, "VIP - Everything allowed", descX, textY);
+            } else {
+                font.setColor(COL_WRONG);
+                font.draw(batch, rule.description, descX, textY);
+            }
         }
 
         // Prompt
@@ -822,7 +1007,7 @@ public class PlayScreen extends GameScreen {
         font.setColor(COL_SCAN_BORDER);
         String prompt = "Press ENTER to begin";
         layout.setText(font, prompt);
-        font.draw(batch, prompt, (WORLD_W - layout.width) / 2, 60);
+        font.draw(batch, prompt, (WORLD_W - layout.width) / 2, 40);
 
         font.setColor(COL_HUD_TEXT);
         font.getData().setScale(0.8f);

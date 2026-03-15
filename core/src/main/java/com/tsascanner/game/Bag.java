@@ -1,5 +1,7 @@
 package com.tsascanner.game;
 
+import com.badlogic.gdx.graphics.Color;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -8,6 +10,16 @@ import java.util.Random;
  * A bag on the conveyor belt containing items.
  */
 public class Bag {
+
+    public enum BagColor {
+        BROWN(new Color(0.45f, 0.35f, 0.25f, 1f)),
+        RED(new Color(0.7f, 0.2f, 0.2f, 1f)),
+        BLUE(new Color(0.25f, 0.35f, 0.6f, 1f)),
+        GREEN(new Color(0.25f, 0.5f, 0.3f, 1f));
+
+        public final Color tint;
+        BagColor(Color tint) { this.tint = tint; }
+    }
 
     public enum BagState {
         ON_BELT,
@@ -21,6 +33,8 @@ public class Bag {
     public float x, y;
     public final float width, height;
     public BagState state;
+    public BagColor color = BagColor.BROWN;
+    public int bagNumber = 0;
 
     private static final Random rng = new Random();
 
@@ -56,10 +70,10 @@ public class Bag {
         }
     }
 
-    /** Check if the bag contains any item forbidden by the given shift config. */
+    /** Check if the bag contains any item forbidden by the given shift config (context-aware). */
     public boolean containsForbidden(ShiftConfig config) {
         for (Item item : contents) {
-            if (config.isForbidden(item)) return true;
+            if (config.isForbidden(item, this)) return true;
         }
         return false;
     }

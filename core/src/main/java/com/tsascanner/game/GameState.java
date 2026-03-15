@@ -65,6 +65,8 @@ public class GameState {
         this.shiftTimer = 0;
         this.shiftOver = false;
 
+        BagGenerator.resetCounter();
+
         this.bagsProcessed = 0;
         this.bagsPassed = 0;
         this.bagsInspected = 0;
@@ -179,7 +181,7 @@ public class GameState {
         int total = currentInspectionBag.contents.size();
 
         for (Item item : currentInspectionBag.contents) {
-            boolean actuallyForbidden = shiftConfig.isForbidden(item);
+            boolean actuallyForbidden = shiftConfig.isForbidden(item, currentInspectionBag);
             boolean markedForbidden = item.mark == Item.InspectionMark.MARKED_FORBIDDEN;
             boolean markedClear = item.mark == Item.InspectionMark.MARKED_CLEAR;
 
