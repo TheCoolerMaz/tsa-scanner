@@ -69,9 +69,18 @@ public class PlayScreen extends GameScreen {
     private static final float CONVEYOR_BOTTOM = 150;
     private static final float BELT_Y = 160;
     private static final float BELT_H = 25;
-    private static final float SCAN_ZONE_X = 140;
     private static final float SCAN_ZONE_W = 200;
     private static final float SCAN_ZONE_TOP = 240;
+
+    // ===== IK Arm =====
+    private static final float IK_ANCHOR_X = WORLD_W / 2;
+    private static final float IK_ANCHOR_Y = SCAN_ZONE_TOP + 15;
+    private static final float IK_L1 = 120f;
+    private static final float IK_L2 = 120f;
+    private static final float IK_ARM_THICKNESS = 5f;
+    private static final float IK_JOINT_RADIUS = 3.5f;
+    private static final Color COL_ARM_SEG   = new Color(0.4f, 0.4f, 0.45f, 1f);
+    private static final Color COL_ARM_JOINT = new Color(0.55f, 0.55f, 0.6f, 1f);
 
     // ===== Layout — Inspection Zone (bottom half) =====
     private static final float INSPECT_TOP = 145;
@@ -99,6 +108,11 @@ public class PlayScreen extends GameScreen {
     private float nextBagDelay;
     private boolean showResults;
     private boolean speedBoost;
+
+    // ===== Draggable scan zone =====
+    private float scanZoneX = 140f;
+    private boolean draggingScanner;
+    private float dragOffsetX;
 
     // ===== Feedback flash =====
     private float flashTimer;
@@ -162,6 +176,7 @@ public class PlayScreen extends GameScreen {
 
         drawBackground();
         drawConveyorBelt();
+        drawIKArm();
         drawScanZone();
         if (currentBeltBag != null) {
             drawBeltBag();
@@ -250,7 +265,7 @@ public class PlayScreen extends GameScreen {
     private boolean bagInScanZone() {
         if (currentBeltBag == null) return false;
         float bagRight = currentBeltBag.x + currentBeltBag.width;
-        return bagRight > SCAN_ZONE_X && currentBeltBag.x < SCAN_ZONE_X + SCAN_ZONE_W;
+        return bagRight > scanZoneX && currentBeltBag.x < scanZoneX + SCAN_ZONE_W;
     }
 
     // ==================== INPUT ====================
@@ -259,6 +274,30 @@ public class PlayScreen extends GameScreen {
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
             manager.pop(new FadeTransition(0.3f));
             return;
+        }
+
+        // Drag scanner zone (only when NOT inspecting a bag)
+        if (state.currentInspectionBag == null) {
+            if (Gdx.input.justTouched()) {
+                mouseWorld.set(Gdx.input.getX(), Gdx.input.getY(), 0);
+                camera.unproject(mouseWorld);
+                if (mouseWorld.x >= scanZoneX && mouseWorld.x <= scanZoneX + SCAN_ZONE_W
+                    && mouseWorld.y >= BELT_Y && mouseWorld.y <= SCAN_ZONE_TOP) {
+                    draggingScanner = true;
+                    dragOffsetX = mouseWorld.x - scanZoneX;
+                }
+            }
+            if (draggingScanner) {
+                if (Gdx.input.isTouched()) {
+                    mouseWorld.set(Gdx.input.getX(), Gdx.input.getY(), 0);
+                    camera.unproject(mouseWorld);
+                    scanZoneX = MathUtils.clamp(mouseWorld.x - dragOffsetX, 0, WORLD_W - SCAN_ZONE_W);
+                } else {
+                    draggingScanner = false;
+                }
+            }
+        } else {
+            draggingScanner = false;
         }
 
         // Hold SPACE for 2x belt speed
@@ -361,7 +400,7 @@ public class PlayScreen extends GameScreen {
     }
 
     private void triggerFlash(boolean correct) {
-        flashTimer = 0.3f;
+        flashTimer = 0.15f;
         flashColor = correct ? COL_CORRECT : COL_WRONG;
     }
 
@@ -423,24 +462,61 @@ public class PlayScreen extends GameScreen {
         shapes.end();
     }
 
+    private void drawIKArm() {
+        float targetX = scanZoneX + SCAN_ZONE_W / 2f;
+        float targetY = SCAN_ZONE_TOP;
+
+        float dx = targetX - IK_ANCHOR_X;
+        float dy = targetY - IK_ANCHOR_Y;
+        float dist = (float) Math.sqrt(dx * dx + dy * dy);
+
+        // Clamp distance to reachable range
+        float minReach = Math.abs(IK_L1 - IK_L2);
+        float maxReach = IK_L1 + IK_L2;
+        dist = MathUtils.clamp(dist, minReach + 0.01f, maxReach - 0.01f);
+
+        // Law of cosines for elbow angle
+        float cosAngle = (IK_L1 * IK_L1 + dist * dist - IK_L2 * IK_L2) / (2f * IK_L1 * dist);
+        cosAngle = MathUtils.clamp(cosAngle, -1f, 1f);
+
+        float angleToTarget = MathUtils.atan2(dy, dx);
+        float elbowAngle = angleToTarget + (float) Math.acos(cosAngle); // + for elbow-up
+
+        float elbowX = IK_ANCHOR_X + IK_L1 * MathUtils.cos(elbowAngle);
+        float elbowY = IK_ANCHOR_Y + IK_L1 * MathUtils.sin(elbowAngle);
+
+        // Draw arm segments as thick lines (rectLine)
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(COL_ARM_SEG);
+        shapes.rectLine(IK_ANCHOR_X, IK_ANCHOR_Y, elbowX, elbowY, IK_ARM_THICKNESS);
+        shapes.rectLine(elbowX, elbowY, targetX, targetY, IK_ARM_THICKNESS);
+
+        // Draw joints
+        shapes.setColor(COL_ARM_JOINT);
+        shapes.circle(IK_ANCHOR_X, IK_ANCHOR_Y, IK_JOINT_RADIUS, 12);
+        shapes.circle(elbowX, elbowY, IK_JOINT_RADIUS, 12);
+        shapes.circle(targetX, targetY, IK_JOINT_RADIUS, 12);
+        shapes.end();
+    }
+
     private void drawScanZone() {
         float zoneH = SCAN_ZONE_TOP - BELT_Y;
 
         // Semi-transparent scan zone fill
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(COL_SCAN_ZONE);
-        shapes.rect(SCAN_ZONE_X, BELT_Y, SCAN_ZONE_W, zoneH);
+        shapes.rect(scanZoneX, BELT_Y, SCAN_ZONE_W, zoneH);
         shapes.end();
 
         // Scan zone border
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(COL_SCAN_BORDER);
-        shapes.rect(SCAN_ZONE_X, BELT_Y, SCAN_ZONE_W, zoneH);
+        shapes.rect(scanZoneX, BELT_Y, SCAN_ZONE_W, zoneH);
 
         // Scan line accents
         shapes.setColor(COL_SCAN_BORDER.r, COL_SCAN_BORDER.g, COL_SCAN_BORDER.b, 0.3f);
-        shapes.line(SCAN_ZONE_X, BELT_Y + zoneH / 3, SCAN_ZONE_X + SCAN_ZONE_W, BELT_Y + zoneH / 3);
-        shapes.line(SCAN_ZONE_X, BELT_Y + zoneH * 2 / 3, SCAN_ZONE_X + SCAN_ZONE_W, BELT_Y + zoneH * 2 / 3);
+        shapes.line(scanZoneX, BELT_Y + zoneH / 3, scanZoneX + SCAN_ZONE_W, BELT_Y + zoneH / 3);
+        shapes.line(scanZoneX, BELT_Y + zoneH * 2 / 3, scanZoneX + SCAN_ZONE_W, BELT_Y + zoneH * 2 / 3);
         shapes.end();
     }
 
@@ -486,10 +562,10 @@ public class PlayScreen extends GameScreen {
         // If any part is in the scan zone, draw x-ray clipped to the zone
         if (inZone) {
             // Convert scan zone world coords to screen coords for glScissor
-            Vector3 bottomLeft = camera.project(new Vector3(SCAN_ZONE_X, BELT_Y, 0),
+            Vector3 bottomLeft = camera.project(new Vector3(scanZoneX, BELT_Y, 0),
                 viewport.getScreenX(), viewport.getScreenY(),
                 viewport.getScreenWidth(), viewport.getScreenHeight());
-            Vector3 topRight = camera.project(new Vector3(SCAN_ZONE_X + SCAN_ZONE_W, SCAN_ZONE_TOP, 0),
+            Vector3 topRight = camera.project(new Vector3(scanZoneX + SCAN_ZONE_W, SCAN_ZONE_TOP, 0),
                 viewport.getScreenX(), viewport.getScreenY(),
                 viewport.getScreenWidth(), viewport.getScreenHeight());
 
@@ -701,13 +777,7 @@ public class PlayScreen extends GameScreen {
     }
 
     private void drawFlash() {
-        if (flashTimer > 0 && flashColor != null) {
-            float alpha = flashTimer / 0.3f * 0.25f;
-            shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(flashColor.r, flashColor.g, flashColor.b, alpha);
-            shapes.rect(0, 0, WORLD_W, WORLD_H);
-            shapes.end();
-        }
+        // Flash removed — feedback text handles correct/wrong indication
     }
 
     private void drawHUD() {
@@ -741,7 +811,7 @@ public class PlayScreen extends GameScreen {
             font.setColor(COL_SCAN_BORDER);
             String prompt = "[D] PULL TO INSPECT";
             layout.setText(font, prompt);
-            font.draw(batch, prompt, SCAN_ZONE_X + (SCAN_ZONE_W - layout.width) / 2, SCAN_ZONE_TOP + 8);
+            font.draw(batch, prompt, scanZoneX + (SCAN_ZONE_W - layout.width) / 2, SCAN_ZONE_TOP + 8);
             font.setColor(COL_HUD_TEXT);
         }
 

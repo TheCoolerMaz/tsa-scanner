@@ -52,9 +52,6 @@ public class BagGenerator {
         // Assign color based on shift
         bag.color = pickColor(shiftNumber);
 
-        // Assign bag number
-        bag.bagNumber = ++bagCounter;
-
         return bag;
     }
 
@@ -106,7 +103,10 @@ public class BagGenerator {
             Bag bag = generate(config);
             // Skip if this bag's rule has empty forbidden tags (VIP)
             if (bagHasEmptyRule(bag, config)) continue;
-            if (bag.containsForbidden(config)) return bag;
+            if (bag.containsForbidden(config)) {
+                bag.bagNumber = ++bagCounter;
+                return bag;
+            }
         }
 
         // Fallback: force a forbidden item in
@@ -130,6 +130,7 @@ public class BagGenerator {
                 }
             }
         }
+        bag.bagNumber = ++bagCounter;
         return bag;
     }
 
@@ -151,9 +152,14 @@ public class BagGenerator {
     public static Bag generateCleanBag(ShiftConfig config) {
         for (int attempt = 0; attempt < 50; attempt++) {
             Bag bag = generate(config);
-            if (!bag.containsForbidden(config)) return bag;
+            if (!bag.containsForbidden(config)) {
+                bag.bagNumber = ++bagCounter;
+                return bag;
+            }
         }
         // If we can't generate a clean bag after 50 attempts, just return whatever
-        return generate(config);
+        Bag bag = generate(config);
+        bag.bagNumber = ++bagCounter;
+        return bag;
     }
 }
