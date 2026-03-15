@@ -427,38 +427,53 @@ public class PlayScreen extends GameScreen {
 
         boolean inZone = bagInScanZone();
 
+        // Always draw the normal opaque bag first
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(COL_BAG_NORMAL);
+        shapes.rect(bx, by, bw, bh);
+        shapes.setColor(COL_BAG_OUTLINE);
+        shapes.rect(bx + bw * 0.3f, by + bh, bw * 0.1f, 6);
+        shapes.rect(bx + bw * 0.6f, by + bh, bw * 0.1f, 6);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(COL_BAG_OUTLINE);
+        shapes.rect(bx, by, bw, bh);
+        shapes.end();
+
+        // If any part is in the scan zone, draw x-ray clipped to the zone
         if (inZone) {
-            // X-ray view — all items in same neutral orange color
+            // Convert scan zone world coords to screen coords for glScissor
+            Vector3 bottomLeft = camera.project(new Vector3(SCAN_ZONE_X, BELT_Y, 0),
+                viewport.getScreenX(), viewport.getScreenY(),
+                viewport.getScreenWidth(), viewport.getScreenHeight());
+            Vector3 topRight = camera.project(new Vector3(SCAN_ZONE_X + SCAN_ZONE_W, SCAN_ZONE_TOP, 0),
+                viewport.getScreenX(), viewport.getScreenY(),
+                viewport.getScreenWidth(), viewport.getScreenHeight());
+
+            int sx = (int) bottomLeft.x;
+            int sy = (int) bottomLeft.y;
+            int sw = (int) (topRight.x - bottomLeft.x);
+            int sh = (int) (topRight.y - bottomLeft.y);
+
+            Gdx.gl.glEnable(GL20.GL_SCISSOR_TEST);
+            Gdx.gl.glScissor(sx, sy, sw, sh);
+
+            // X-ray bag fill
             shapes.begin(ShapeRenderer.ShapeType.Filled);
             shapes.setColor(COL_XRAY_BG);
             shapes.rect(bx, by, bw, bh);
             shapes.end();
 
-            // Draw items — all in same orange (no debug colors)
+            // X-ray items
             drawBeltItems(bx + bw / 2, by + bh / 2);
 
-            // Bag outline
+            // X-ray bag outline
             shapes.begin(ShapeRenderer.ShapeType.Line);
             shapes.setColor(COL_XRAY_OUTLINE);
             shapes.rect(bx, by, bw, bh);
             shapes.end();
-        } else {
-            // Normal view — opaque bag
-            shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(COL_BAG_NORMAL);
-            shapes.rect(bx, by, bw, bh);
 
-            // Handle straps
-            shapes.setColor(COL_BAG_OUTLINE);
-            shapes.rect(bx + bw * 0.3f, by + bh, bw * 0.1f, 6);
-            shapes.rect(bx + bw * 0.6f, by + bh, bw * 0.1f, 6);
-            shapes.end();
-
-            // Bag outline
-            shapes.begin(ShapeRenderer.ShapeType.Line);
-            shapes.setColor(COL_BAG_OUTLINE);
-            shapes.rect(bx, by, bw, bh);
-            shapes.end();
+            Gdx.gl.glDisable(GL20.GL_SCISSOR_TEST);
         }
     }
 
