@@ -175,6 +175,7 @@ public class GameState {
 
         int correct = 0;
         int wrong = 0;
+        int missedThreats = 0;
         int total = currentInspectionBag.contents.size();
 
         for (Item item : currentInspectionBag.contents) {
@@ -201,15 +202,25 @@ public class GameState {
                     correctClassifications++;
                     itemsClassifiedCorrectly++;
                 } else {
-                    // Missed a forbidden item
+                    // Missed a forbidden item — strike
                     wrong++;
+                    missedThreats++;
                     itemsClassifiedIncorrectly++;
                 }
             } else {
                 // Wrong classification
                 wrong++;
                 itemsClassifiedIncorrectly++;
+                // Marked clear but actually forbidden = missed threat
+                if (markedClear && actuallyForbidden) {
+                    missedThreats++;
+                }
             }
+        }
+
+        // Missed threats in inspection count as strikes
+        if (missedThreats > 0) {
+            strikes += missedThreats;
         }
 
         boolean allCorrect = (correct == total);
