@@ -282,30 +282,26 @@ public class PlayScreen extends GameScreen {
             return;
         }
 
-        // Drag scanner zone (only when NOT inspecting a bag)
-        if (state.currentInspectionBag == null) {
-            if (Gdx.input.justTouched()) {
+        // Drag scanner zone (always available)
+        if (Gdx.input.justTouched() && !draggingScanner) {
+            mouseWorld.set(Gdx.input.getX(), Gdx.input.getY(), 0);
+            camera.unproject(mouseWorld);
+            if (mouseWorld.x >= scanZoneX && mouseWorld.x <= scanZoneX + SCAN_ZONE_W
+                && mouseWorld.y >= scanZoneY && mouseWorld.y <= scanZoneY + SCAN_ZONE_H) {
+                draggingScanner = true;
+                dragOffsetX = mouseWorld.x - scanZoneX;
+                dragOffsetY = mouseWorld.y - scanZoneY;
+            }
+        }
+        if (draggingScanner) {
+            if (Gdx.input.isTouched()) {
                 mouseWorld.set(Gdx.input.getX(), Gdx.input.getY(), 0);
                 camera.unproject(mouseWorld);
-                if (mouseWorld.x >= scanZoneX && mouseWorld.x <= scanZoneX + SCAN_ZONE_W
-                    && mouseWorld.y >= scanZoneY && mouseWorld.y <= scanZoneY + SCAN_ZONE_H) {
-                    draggingScanner = true;
-                    dragOffsetX = mouseWorld.x - scanZoneX;
-                    dragOffsetY = mouseWorld.y - scanZoneY;
-                }
+                scanZoneX = MathUtils.clamp(mouseWorld.x - dragOffsetX, 0, WORLD_W - SCAN_ZONE_W);
+                scanZoneY = MathUtils.clamp(mouseWorld.y - dragOffsetY, 0, WORLD_H - TOP_BAR_H - SCAN_ZONE_H);
+            } else {
+                draggingScanner = false;
             }
-            if (draggingScanner) {
-                if (Gdx.input.isTouched()) {
-                    mouseWorld.set(Gdx.input.getX(), Gdx.input.getY(), 0);
-                    camera.unproject(mouseWorld);
-                    scanZoneX = MathUtils.clamp(mouseWorld.x - dragOffsetX, 0, WORLD_W - SCAN_ZONE_W);
-                    scanZoneY = MathUtils.clamp(mouseWorld.y - dragOffsetY, 0, WORLD_H - TOP_BAR_H - SCAN_ZONE_H);
-                } else {
-                    draggingScanner = false;
-                }
-            }
-        } else {
-            draggingScanner = false;
         }
 
         // Hold SPACE for 2x belt speed
@@ -323,8 +319,8 @@ public class PlayScreen extends GameScreen {
 
         // Inspection controls — only when a bag is being inspected
         if (state.currentInspectionBag != null) {
-            // Mouse click to select item
-            if (Gdx.input.justTouched()) {
+            // Mouse click to select item (skip if dragging scanner)
+            if (Gdx.input.justTouched() && !draggingScanner) {
                 mouseWorld.set(Gdx.input.getX(), Gdx.input.getY(), 0);
                 camera.unproject(mouseWorld);
 
